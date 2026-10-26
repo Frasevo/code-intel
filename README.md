@@ -1,6 +1,6 @@
 # Frasevo Code Intel
 
-Offline, read-only code inventory and **CI-03 static Next.js API catalog** (plus CI-01 and CI-02) for TypeScript/Next.js and related source files. CI-01 snapshots remain compatible with v1.
+Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, and **CI-04 Markdown documentation traceability**. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
 
 This repository is independent of the Frasevo SaaS. All examples and fixtures are synthetic. It does not use AI, Ollama, Codex, API keys, external services, telemetry, or a database.
 
@@ -28,6 +28,13 @@ node src/cli.ts consumers ../code-graph.json --path src/lib/widget.ts
 node src/cli.ts api ./my-project --out ../api-catalog.json --repo-id sample-project
 node src/cli.ts api-validate ../api-catalog.json
 node src/cli.ts api-route ../api-catalog.json --path /api/items/[id]
+
+# CI-04: source-cited Markdown links to code, other docs, and API routes.
+node src/cli.ts docs ./my-project --out ../doc-trace.json --repo-id sample-project
+node src/cli.ts docs-validate ../doc-trace.json
+node src/cli.ts docs-file ../doc-trace.json --path README.md
+node src/cli.ts docs-target ../doc-trace.json --path src/lib/widget.ts
+node src/cli.ts docs-target ../doc-trace.json --path /api/items/[id]
 
 # Generic import: source hashes cannot be independently checked, so marked unverified.
 node src/cli.ts import ./inventory.json --repo-id sample-project --out ../imported-snapshot.json
@@ -60,6 +67,7 @@ Import hashes are only producer claims. `validate` checks structural and interna
 - [`schemas/code-snapshot.v1.schema.json`](schemas/code-snapshot.v1.schema.json): `code-snapshot/v1` with `schemaVersion`, producer and artifact IDs, time, sensitivity, hash, files and optional Git identity.
 - [`schemas/generic-file-inventory.v1.schema.json`](schemas/generic-file-inventory.v1.schema.json): portable input for generic import; no product-specific parsing.
 - [`schemas/api-catalog.v1.schema.json`](schemas/api-catalog.v1.schema.json): `api-catalog/v1` with Next.js route files, method declarations, static dependency evidence and explicit unknowns.
+- [`schemas/doc-trace.v1.schema.json`](schemas/doc-trace.v1.schema.json): `doc-trace/v1` with Markdown heading anchors, link references to verified inventory paths or API declarations, link coordinates, coverage caveats, and upstream fingerprint IDs.
 - [`schemas/code-graph.v1.schema.json`](schemas/code-graph.v1.schema.json): `code-graph/v1` with top-level symbol and file nodes, import/reexport/consumer/export relationships, source locations and declaration hashes.
 - `sourceTreeHash` is `null` on purpose: only permitted files are scanned. The `includedFilesHash` covers canonical file metadata, not the complete source tree.
 - Secret-looking files/dirs, `.git`, dependencies, generated outputs, symlinks and binaries are excluded. Files over 8 MiB and scans over the safety limits fail explicitly. Source content is never put in the artifact.
@@ -71,12 +79,12 @@ Import hashes are only producer claims. `validate` checks structural and interna
 
 1. **CI-01 (complete):** offline scanner, generic import, snapshot contract, tests.
 2. **CI-02 (complete):** TypeScript AST symbols, in-inventory dependencies and reverse consumers.
-3. **CI-03 (this phase):** Next.js route registry, provenance and declared/tested/observed distinctions.
-4. **CI-04:** documentation references and traceability.
+3. **CI-03 (complete):** Next.js route registry, provenance and declared/tested/observed distinctions.
+4. **CI-04 (complete):** Markdown link/anchor references and traceability without executing the target repository.
 5. **CI-05:** bounded, source-cited context retrieval with deterministic fallback.
 6. **CI-06:** incremental indexing and optional read-only MCP.
 
-See [SECURITY.md](SECURITY.md) for safe use and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
+See [PENDIENTE.md](PENDIENTE.md) for the active roadmap. See [SECURITY.md](SECURITY.md) for safe use and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
 
 ## CI-02 graph guarantees and limitations
 
@@ -100,5 +108,20 @@ The seven recognized HTTP method names are Next.js App Router's `GET`, `POST`, `
 Each method always has `evidence.tested=not-checked`, `evidence.observed=not-checked`, `authentication.status=unknown`, `requestSchema=unknown`, `responseSchema=unknown`, `rateLimit=unknown` unless a future version defines *separate explicit evidence*. The `authentication.staticSignals` array contains only AST-level names used in the declaring handler; **it never proves that authentication is effective**, and an empty array never implies public access. CI-03 does **not** generate request samples without a verified request/response contract.
 
 Dependencies show direct static imports and reexports of the route file (with source coordinates), not complete transitive reachability or effective permissions. Route collisions and unsupported segments appear in `issues`. The artifact fingerprint omits `capturedAt` and its internal validation checks consistency only; authenticating the source checkout requires independent re-scanning. Do not publish private catalogs, source paths, or artifacts generated from Frasevo.
+
+
+## CI-04 documentation coverage and limits
+
+`docs` performs read-only local CI-01/02/03 indexing and cross-checks the snapshot, graph and API fingerprints before producing a fourth independent `doc-trace/v1` artifact. It reads only Markdown `.md` / `.mdx` files permitted by the CI-01 scanner and rechecks file hashes before processing. Outputs must remain **outside** the scanned repository.
+
+- Static Markdown inline links `[text](path)`, full reference uses `[text][ref]` plus `[ref]: path`, and ATX headings (`# Heading`) are supported. References carry documentation path, line, column, target, and status. Multiple same-name headings get `-1`, `-2` suffixes. Supported targets: inventory files, headings in indexed Markdown, and **exact declared** Next.js API route paths such as `/api/items/[id]`. Backticks and fenced blocks are excluded; Markdown image links are excluded.
+- `resolved` means **a static match** to an included file, Markdown heading or API declaration, not that the documentation is accurate, a link works in production, an endpoint is reachable, authenticated, tested, or current. A link that cannot be established is `unknown` rather than inferred as broken or valid. `/api/items/123` does not prove a match to `/api/items/[id]`.
+- External links are preserved only as `kind=external`, without recording their URLs, query strings, or credentials. Unsafe/absolute targets are `unknown` without exporting their target. The output retains internal paths/headings and is therefore always `private`.
+- This core deliberately does **not** implement full CommonMark, MDX JSX links, wiki links, HTML anchors, link text inspection, runtime documentation generation, endpoint probes, API examples, dependency transitive reachability, or doc-to-symbol inference. Complex nested Markdown/parenthesized paths may be missed. CI-05/06 can extend indexing and performance without changing v1 semantics.
+- Fingerprints bind output content and referenced upstream artifact IDs (excluding `capturedAt`); they do not provide cryptographic proof of repository ownership or prevent someone from forging a whole JSON artifact. Repeat scanning against a trusted checkout for stronger assurance.
+
+### Branch workflow
+
+Create `feat/ci-04-doc-trace` from `develop`, commit all changes as a single coherent feature commit, then submit a PR into `develop`. After the PR is merged, delete the feature branch locally and remotely. Do not merge directly into `main`.
 
 **Development workflow:** create `feat/ci-XX-*` from updated `develop`; one functional commit per phase; validate and open PR targeting `develop`. Only after the PR is merged and verification passes, delete the feature branch locally and remotely. Releases of `develop` into `main` are separate PRs. Local tests on Node 22 require experimental TypeScript stripping; CI targets Node 24.
