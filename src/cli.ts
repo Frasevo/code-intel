@@ -9,9 +9,12 @@ import { validateSnapshot, type Snapshot } from './snapshot.ts';
 import { buildGraph, validateGraph, consumersOf, type Graph } from './graph.ts';
 import { buildApiCatalog, validateApiCatalog, findApiRoute, type ApiCatalog } from './api-registry.ts';
 import { buildDocTrace, validateDocTrace, referencesFrom, referencesTo, type DocTrace } from './docs.ts';
+import { selectContext, type ContextIndexes, type ContextQuery } from './context.ts';
+import { buildEvidencePack, type EvidenceLimits } from './evidence.ts';
+import { createContextArtifact, validateContextArtifact, type ContextArtifact } from './context-artifact.ts';
 
 function usage(): never {
-  throw new Error('Usage: docs <repo> --out <file> [--repo-id <id>] | docs-validate <index> | docs-file <index> --path <doc> | docs-target <index> --path <target> | api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
+  throw new Error('Usage: context-select <repo> --snapshot <file> --graph <file> --api <file> --docs <file> --out <file> (--path <path> | --keyword <word>) [--depth 0..2] [--max-results 1..50] [--max-bytes 2048..65536] | context-evidence <repo> [same index/query/output options] [--max-lines 1..12] [--max-chars 80..2048] [--max-source-files 1..20] [--max-source-bytes 1..33554432] [--max-pack-bytes 2048..65536] | context-validate <file> | docs <repo> --out <file> [--repo-id <id>] | docs-validate <index> | docs-file <index> --path <doc> | docs-target <index> --path <target> | api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
 }
 
 function option(args: string[], name: string): string | undefined {
@@ -35,7 +38,7 @@ function within(root: string, destination: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-async function outputSnapshot(snapshot: Snapshot | Graph | ApiCatalog | DocTrace, output: string, scanRoot?: string): Promise<void> {
+async function outputSnapshot(snapshot: Snapshot | Graph | ApiCatalog | DocTrace | ContextArtifact, output: string, scanRoot?: string): Promise<void> {
   const target = resolve(output);
   const dir = await realpath(dirname(target));
   const destination = resolve(dir, basename(target));
@@ -54,10 +57,70 @@ async function outputSnapshot(snapshot: Snapshot | Graph | ApiCatalog | DocTrace
   } finally { await rm(temp, { force: true }); }
 }
 
+/** Strict decimal parsing: reject negative numbers, fractions, exponents and overflow. */
+function numberOption(args: string[], name: string): number | undefined {
+  const raw = option(args, name);
+  if (raw === undefined) return undefined;
+  if (!/^(0|[1-9][0-9]*)$/.test(raw)) throw new Error(`Invalid numeric option: ${name}`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) throw new Error(`Invalid numeric option: ${name}`);
+  return value;
+}
+
+const CONTEXT_FLAGS = new Set(['--snapshot','--graph','--api','--docs','--out', '--path','--keyword',
+  '--depth','--max-results','--max-bytes']);
+const EVIDENCE_FLAGS = new Set([...CONTEXT_FLAGS, '--max-lines','--max-chars','--max-source-files',
+  '--max-source-bytes','--max-pack-bytes']);
+
+async function contextCommand(mode: 'selection' | 'evidence', repo: string, args: string[]): Promise<void> {
+  checkArgs(args, mode === 'selection' ? CONTEXT_FLAGS : EVIDENCE_FLAGS);
+  const required = ['--snapshot','--graph','--api','--docs','--out'];
+  const values = Object.fromEntries(required.map(name => [name, option(args, name)]));
+  if (required.some(name => !values[name])) usage();
+  const query: ContextQuery = {};
+  const path = option(args, '--path');
+  const keyword = option(args, '--keyword');
+  if (path !== undefined) query.path = path;
+  if (keyword !== undefined) query.keyword = keyword;
+  query.depth = numberOption(args, '--depth') as ContextQuery['depth'];
+  query.maxResults = numberOption(args, '--max-results');
+  query.maxBytes = numberOption(args, '--max-bytes');
+  const limits: EvidenceLimits = {
+    maxLines: numberOption(args, '--max-lines'),
+    maxChars: numberOption(args, '--max-chars'),
+    maxSourceFiles: numberOption(args, '--max-source-files'),
+    maxSourceBytes: numberOption(args, '--max-source-bytes'),
+    maxPackBytes: numberOption(args, '--max-pack-bytes'),
+  };
+  // Undefined options must not mask the evidence module's safe defaults.
+  for (const name of Object.keys(limits) as (keyof EvidenceLimits)[]) {
+    if (limits[name] === undefined) delete limits[name];
+  }
+  const [snapshot, graph, api, docs] = await Promise.all([
+    readJsonArtifact(values['--snapshot']!), readJsonArtifact(values['--graph']!),
+    readJsonArtifact(values['--api']!), readJsonArtifact(values['--docs']!),
+  ]);
+  const indexes: ContextIndexes = {
+    snapshot: validateSnapshot(snapshot), graph: validateGraph(graph),
+    api: validateApiCatalog(api), docs: validateDocTrace(docs),
+  };
+  const result = mode === 'selection' ?
+    createContextArtifact(indexes, 'selection', selectContext(indexes, query)) :
+    createContextArtifact(indexes, 'evidence', await buildEvidencePack(repo, indexes, query, limits));
+  await outputSnapshot(result, values['--out']!, repo);
+  console.log(`Wrote ${result.schemaVersion} ${mode} response (${result.artifactId})`);
+}
+
 export async function main(args: string[]): Promise<void> {
   const [command, target, ...rest] = args;
   if (!target || target.startsWith('--')) usage();
-  if (command === 'docs') {
+  if (command === 'context-select' || command === 'context-evidence') {
+    await contextCommand(command === 'context-select' ? 'selection' : 'evidence', target, rest);
+  } else if (command === 'context-validate') {
+    if (rest.length) usage();
+    const response = validateContextArtifact(await readJsonArtifact(target));
+    console.log(`Valid ${response.schemaVersion} (${response.artifactId})`);
+  } else if (command === 'docs') {
     checkArgs(rest, new Set(['--out', '--repo-id']));
     const out = option(rest, '--out');
     if (!out) usage();
