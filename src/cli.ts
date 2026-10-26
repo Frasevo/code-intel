@@ -7,9 +7,10 @@ import { scanRepository } from './scanner.ts';
 import { importArtifact, readJsonArtifact } from './importer.ts';
 import { validateSnapshot, type Snapshot } from './snapshot.ts';
 import { buildGraph, validateGraph, consumersOf, type Graph } from './graph.ts';
+import { buildApiCatalog, validateApiCatalog, findApiRoute, type ApiCatalog } from './api-registry.ts';
 
 function usage(): never {
-  throw new Error('Usage: scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
+  throw new Error('Usage: api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
 }
 
 function option(args: string[], name: string): string | undefined {
@@ -33,7 +34,7 @@ function within(root: string, destination: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-async function outputSnapshot(snapshot: Snapshot | Graph, output: string, scanRoot?: string): Promise<void> {
+async function outputSnapshot(snapshot: Snapshot | Graph | ApiCatalog, output: string, scanRoot?: string): Promise<void> {
   const target = resolve(output);
   const dir = await realpath(dirname(target));
   const destination = resolve(dir, basename(target));
@@ -55,7 +56,25 @@ async function outputSnapshot(snapshot: Snapshot | Graph, output: string, scanRo
 export async function main(args: string[]): Promise<void> {
   const [command, target, ...rest] = args;
   if (!target || target.startsWith('--')) usage();
-  if (command === 'scan') {
+  if (command === 'api') {
+    checkArgs(rest, new Set(['--out', '--repo-id']));
+    const out = option(rest, '--out');
+    if (!out) usage();
+    const catalog = await buildApiCatalog(target, option(rest, '--repo-id'));
+    validateApiCatalog(catalog);
+    await outputSnapshot(catalog, out, target);
+    console.log(`Wrote ${catalog.stats.routes} API routes and ${catalog.stats.methods} method declarations`);
+  } else if (command === 'api-validate') {
+    if (rest.length) usage();
+    const catalog = validateApiCatalog(await readJsonArtifact(target));
+    console.log(`Valid ${catalog.schemaVersion} (${catalog.artifactId})`);
+  } else if (command === 'api-route') {
+    checkArgs(rest, new Set(['--path']));
+    const path = option(rest, '--path');
+    if (!path) usage();
+    const catalog = validateApiCatalog(await readJsonArtifact(target));
+    console.log(JSON.stringify(findApiRoute(catalog, path), null, 2));
+  } else if (command === 'scan') {
     checkArgs(rest, new Set(['--out', '--repo-id']));
     const out = option(rest, '--out');
     if (!out) usage();

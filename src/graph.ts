@@ -34,7 +34,7 @@ const localPath = (root: string, abs: string): string | null => {
   return normalizedRelativePath(rel.split(sep).join('/'));
 };
 
-async function verifiedRead(root: string, path: string, hash: string, sizeBytes: number): Promise<string> {
+export async function verifiedRead(root: string, path: string, hash: string, sizeBytes: number): Promise<string> {
   if (!permittedPath(path) || sizeBytes > MAX_SOURCE_BYTES) throw new Error('Unsafe source read');
   const absolute = resolve(root, path);
   if (localPath(root, absolute) !== path) throw new Error('Path outside inventory');
