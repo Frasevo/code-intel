@@ -1,0 +1,457 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:frasevo:api-catalog:v1",
+  "title": "Frasevo Code Intel static Next.js API catalog v1",
+  "description": "Read-only AST export inventory. No runtime health, authentication verification or performance claim.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "producerVersion",
+    "artifactId",
+    "repoId",
+    "capturedAt",
+    "sensitivity",
+    "sourceGraph",
+    "coverage",
+    "routes",
+    "issues",
+    "stats"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "api-catalog/v1"
+    },
+    "producerVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifactId": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "repoId": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$"
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sensitivity": {
+      "const": "private"
+    },
+    "sourceGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactId",
+        "snapshotArtifactId",
+        "includedFilesHash",
+        "commitSha",
+        "dirty"
+      ],
+      "properties": {
+        "artifactId": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "snapshotArtifactId": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "includedFilesHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "commitSha": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dirty": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "execution",
+        "routeFiles",
+        "unresolvedMethods"
+      ],
+      "properties": {
+        "scope": {
+          "const": "app-api-routes-only"
+        },
+        "execution": {
+          "const": "not-performed"
+        },
+        "routeFiles": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unresolvedMethods": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/$defs/route"
+      }
+    },
+    "issues": {
+      "type": "array",
+      "maxItems": 20000,
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "routes",
+        "methods",
+        "unresolvedMethods"
+      ],
+      "properties": {
+        "routes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "methods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unresolvedMethods": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "line",
+        "column"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "location"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "resolved",
+            "unknown"
+          ]
+        },
+        "location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/location"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "line",
+        "column",
+        "code"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z_]+$"
+        }
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "declaredAt",
+        "handlerOrigin",
+        "evidence",
+        "authentication",
+        "requestSchema",
+        "responseSchema",
+        "rateLimit"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        "declaredAt": {
+          "$ref": "#/$defs/location"
+        },
+        "handlerOrigin": {
+          "$ref": "#/$defs/origin"
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "declared",
+            "tested",
+            "observed"
+          ],
+          "properties": {
+            "declared": {
+              "const": "source-export"
+            },
+            "tested": {
+              "const": "not-checked"
+            },
+            "observed": {
+              "const": "not-checked"
+            }
+          }
+        },
+        "authentication": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "staticSignals"
+          ],
+          "properties": {
+            "status": {
+              "const": "unknown"
+            },
+            "staticSignals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "line",
+                  "column",
+                  "name"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "name": {
+                    "enum": [
+                      "auth",
+                      "getAuth",
+                      "requireAuth",
+                      "requireSession",
+                      "getServerSession",
+                      "currentUser",
+                      "verifySession",
+                      "authGuard"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "requestSchema": {
+          "const": "unknown"
+        },
+        "responseSchema": {
+          "const": "unknown"
+        },
+        "rateLimit": {
+          "const": "unknown"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "source",
+        "sourceSha256",
+        "dynamicSegments",
+        "methods",
+        "dependencies"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/",
+          "maxLength": 2048
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "dynamicSegments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "kind"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "parameter",
+                  "catch-all",
+                  "optional-catch-all"
+                ]
+              }
+            }
+          }
+        },
+        "methods": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/method"
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "specifier",
+              "path",
+              "status",
+              "line",
+              "column",
+              "relation",
+              "typeOnly"
+            ],
+            "properties": {
+              "specifier": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "resolved",
+                  "external",
+                  "unknown"
+                ]
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "relation": {
+                "enum": [
+                  "import",
+                  "reexport"
+                ]
+              },
+              "typeOnly": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

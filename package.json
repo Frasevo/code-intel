@@ -1,9 +1,9 @@
 {
   "name": "@frasevo/code-intel",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Offline code inventory, TypeScript dependency graphs and versioned snapshots",
+  "description": "Offline code inventory, TypeScript dependency graphs and static Next.js API route catalog",
   "packageManager": "pnpm@12.8.1",
   "engines": {
     "node": ">=24 <25"
@@ -15,7 +15,10 @@
     "test": "node --test tests/*.test.ts",
     "graph": "node src/cli.ts graph",
     "graph:validate": "node src/cli.ts graph-validate",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "api": "node src/cli.ts api",
+    "api:validate": "node src/cli.ts api-validate",
+    "api:route": "node src/cli.ts api-route"
   },
   "license": "Apache-2.0",
   "dependencies": {
