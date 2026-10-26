@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 import { normalizedRelativePath, permittedPath } from './policy.ts';
 import { scanRepository } from './scanner.ts';
-import { sha256, VERSION, type Snapshot } from './snapshot.ts';
+import { sha256, VERSION, validateSnapshot, type Snapshot } from './snapshot.ts';
 
 export const GRAPH_SCHEMA = 'code-graph/v1';
 export type GraphNode =
@@ -21,6 +21,10 @@ export type Graph = {
   nodes: GraphNode[]; edges: GraphEdge[]; issues: GraphIssue[];
   stats: { files: number; symbols: number; edges: number; unresolved: number };
 };
+
+/** Reuse is limited to the AST output of verified unchanged source files. */
+export type GraphReuseStats = { reusedFiles: number; parsedFiles: number; fallback: string | null };
+export type GraphReuseCache = { snapshot: Snapshot; graph: Graph; invalidatePaths?: readonly string[]; stats?: GraphReuseStats };
 
 const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 const MAX_AST_FILES = 20_000;
@@ -141,13 +145,53 @@ function graphDigest(graph: Omit<Graph, 'artifactId' | 'capturedAt'>): string {
   return `sha256:${sha256(JSON.stringify(graph))}`;
 }
 
-export async function buildGraph(rootArg: string, repoId?: string): Promise<Graph> {
+export async function buildGraph(rootArg: string, repoId?: string, cache?: GraphReuseCache): Promise<Graph> {
   const root = await realpath(resolve(rootArg));
   const snapshot: Snapshot = await scanRepository(root, repoId);
   const inventory = new Map(snapshot.files.map(f => [f.path, f]));
   const candidates = snapshot.files.filter(f => TYPESCRIPT_SOURCE.test(f.path));
   if (candidates.length > MAX_AST_FILES) throw new Error('Too many AST input files');
+  // The current snapshot is always re-enumerated and hashed, so 'filesystem-verified'
+  // remains truthful. Cached AST records never substitute for source verification.
+  let cached: Graph | undefined;
+  let fallback: string | null = null;
+  const invalidated = new Set(cache?.invalidatePaths ?? []);
+  if (invalidated.size > 100_000 || [...invalidated].some(path => !permittedPath(path))) {
+    throw new Error('Invalid incremental invalidation path');
+  }
+  if (cache) {
+    const previous = validateSnapshot(cache.snapshot);
+    const graph = validateGraph(cache.graph);
+    if (previous.provenance.kind !== 'filesystem-scan' || previous.provenance.verification !== 'filesystem-verified' ||
+      graph.sourceSnapshot.artifactId !== previous.artifactId || graph.sourceSnapshot.includedFilesHash !== previous.provenance.includedFilesHash ||
+      graph.sourceSnapshot.commitSha !== previous.provenance.commitSha || graph.sourceSnapshot.dirty !== previous.provenance.dirty ||
+      previous.repoId !== snapshot.repoId || graph.repoId !== snapshot.repoId) {
+      throw new Error('Incremental cache is incompatible with its previous snapshot or repository');
+    }
+    const priorFiles = new Map(previous.files.map(f => [f.path, f]));
+    const currentFiles = new Map(snapshot.files.map(f => [f.path, f]));
+    const priorSources = previous.files.filter(f => TYPESCRIPT_SOURCE.test(f.path)).map(f => f.path);
+    const currentSources = candidates.map(f => f.path);
+    // TS resolution can change if a source path, a JSON config, or the producer changes.
+    // In that case every source is re-parsed to preserve the v1 graph semantics.
+    const sourceSetChanged = JSON.stringify(priorSources) !== JSON.stringify(currentSources);
+    const jsonChanged = [...new Set([...priorFiles.keys(), ...currentFiles.keys()])].some(path =>
+      path.endsWith('.json') && priorFiles.get(path)?.sha256 !== currentFiles.get(path)?.sha256);
+    const priorNodes = new Map(graph.nodes.filter(n => n.kind === 'file').map(n => [n.path, n.sha256]));
+    const missingNodes = priorSources.some(path => priorNodes.get(path) !== priorFiles.get(path)!.sha256) ||
+      priorNodes.size !== priorSources.length;
+    if (sourceSetChanged) fallback = 'source-paths-changed';
+    else if (jsonChanged) fallback = 'json-configuration-changed';
+    else if ([...invalidated].some(path => !TYPESCRIPT_SOURCE.test(path) || !currentFiles.has(path))) fallback = 'explicit-non-source-invalidation';
+    else if (graph.producerVersion !== VERSION) fallback = 'producer-version-changed';
+    else if (missingNodes) fallback = 'cache-graph-mismatch';
+    else cached = graph;
+    if (cache.stats) { cache.stats.reusedFiles = 0; cache.stats.parsedFiles = 0; cache.stats.fallback = fallback; }
+  }
+  const oldHashes = new Map(cache?.snapshot.files.map(f => [f.path, f.sha256]) ?? []);
+  const reusable = new Set(cached ? candidates.filter(f => oldHashes.get(f.path) === f.sha256 && !invalidated.has(f.path)).map(f => f.path) : []);
   const contents = new Map<string, string>();
+  // Keep the module-resolution host identical to a fresh build; cache AST output, not reads.
   for (const file of candidates) contents.set(file.path, await verifiedRead(root, file.path, file.sha256, file.sizeBytes));
   const issues: GraphIssue[] = [];
   const { options, config } = await compilerOptions(root, inventory, issues);
@@ -182,7 +226,37 @@ export async function buildGraph(rootArg: string, repoId?: string): Promise<Grap
       ? 'unknown' : 'external' };
   };
 
+  // Index the cache once; filtering whole graphs per file would be quadratic.
+  const oldNodes = new Map<string, GraphNode[]>();
+  const oldEdges = new Map<string, GraphEdge[]>();
+  const oldIssues = new Map<string, GraphIssue[]>();
+  if (cached) {
+    for (const node of cached.nodes) {
+      if (!oldNodes.has(node.path)) oldNodes.set(node.path, []);
+      oldNodes.get(node.path)!.push(node);
+    }
+    for (const edge of cached.edges) {
+      // Reverse consumer edges are owned by the source that imports a dependency.
+      const source = edge.relation === 'consumer' ? edge.to : edge.from;
+      if (!source?.startsWith('file:')) continue;
+      const path = source.slice('file:'.length);
+      if (!oldEdges.has(path)) oldEdges.set(path, []);
+      oldEdges.get(path)!.push(edge);
+    }
+    for (const issue of cached.issues) {
+      if (!oldIssues.has(issue.path)) oldIssues.set(issue.path, []);
+      oldIssues.get(issue.path)!.push(issue);
+    }
+  }
   for (const file of candidates) {
+    if (cached && reusable.has(file.path)) {
+      nodes.push(...(oldNodes.get(file.path) ?? []));
+      edges.push(...(oldEdges.get(file.path) ?? []));
+      issues.push(...(oldIssues.get(file.path) ?? []));
+      if (cache?.stats) cache.stats.reusedFiles++;
+      continue;
+    }
+    if (cache?.stats) cache.stats.parsedFiles++;
     nodes.push({ id: fileId(file.path), kind: 'file', path: file.path, sha256: file.sha256 });
     const source = contents.get(file.path)!;
     const sf = ts.createSourceFile(file.path, source, ts.ScriptTarget.Latest, true, sourceKind(file.path));

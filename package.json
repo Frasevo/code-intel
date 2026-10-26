@@ -1,6 +1,6 @@
 {
   "name": "@frasevo/code-intel",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Offline code inventory, TypeScript graphs, API catalog, docs and versioned context/evidence queries",
