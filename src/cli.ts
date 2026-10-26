@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { scanRepository } from './scanner.ts';
 import { importArtifact, readJsonArtifact } from './importer.ts';
 import { validateSnapshot, type Snapshot } from './snapshot.ts';
-import { buildGraph, validateGraph, consumersOf, type Graph } from './graph.ts';
+import { buildGraph, validateGraph, consumersOf, type Graph, type GraphReuseStats } from './graph.ts';
 import { buildApiCatalog, validateApiCatalog, findApiRoute, type ApiCatalog } from './api-registry.ts';
 import { buildDocTrace, validateDocTrace, referencesFrom, referencesTo, type DocTrace } from './docs.ts';
 import { selectContext, type ContextIndexes, type ContextQuery } from './context.ts';
@@ -14,7 +14,7 @@ import { buildEvidencePack, type EvidenceLimits } from './evidence.ts';
 import { createContextArtifact, validateContextArtifact, type ContextArtifact } from './context-artifact.ts';
 
 function usage(): never {
-  throw new Error('Usage: context-select <repo> --snapshot <file> --graph <file> --api <file> --docs <file> --out <file> (--path <path> | --keyword <word>) [--depth 0..2] [--max-results 1..50] [--max-bytes 2048..65536] | context-evidence <repo> [same index/query/output options] [--max-lines 1..12] [--max-chars 80..2048] [--max-source-files 1..20] [--max-source-bytes 1..33554432] [--max-pack-bytes 2048..65536] | context-validate <file> | docs <repo> --out <file> [--repo-id <id>] | docs-validate <index> | docs-file <index> --path <doc> | docs-target <index> --path <target> | api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
+  throw new Error('Usage: context-select <repo> --snapshot <file> --graph <file> --api <file> --docs <file> --out <file> (--path <path> | --keyword <word>) [--depth 0..2] [--max-results 1..50] [--max-bytes 2048..65536] | context-evidence <repo> [same index/query/output options] [--max-lines 1..12] [--max-chars 80..2048] [--max-source-files 1..20] [--max-source-bytes 1..33554432] [--max-pack-bytes 2048..65536] | context-validate <file> | docs <repo> --out <file> [--repo-id <id>] | docs-validate <index> | docs-file <index> --path <doc> | docs-target <index> --path <target> | api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-incremental <repo> --previous-graph <file> --previous-snapshot <file> --out <file> [--repo-id <id>] [--invalidate-path <relative-file>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
 }
 
 function option(args: string[], name: string): string | undefined {
@@ -163,14 +163,22 @@ export async function main(args: string[]): Promise<void> {
     const snapshot = await scanRepository(target, option(rest, '--repo-id'));
     await outputSnapshot(snapshot, out, target);
     console.log(`Wrote ${snapshot.stats.files} files to snapshot (${snapshot.artifactId})`);
-  } else if (command === 'graph') {
-    checkArgs(rest, new Set(['--out', '--repo-id']));
+  } else if (command === 'graph' || command === 'graph-incremental') {
+    checkArgs(rest, new Set(command === 'graph' ? ['--out', '--repo-id'] : ['--out', '--repo-id', '--previous-graph', '--previous-snapshot', '--invalidate-path']));
     const out = option(rest, '--out');
     if (!out) usage();
-    const graph = await buildGraph(target, option(rest, '--repo-id'));
+    const stats: GraphReuseStats = { reusedFiles: 0, parsedFiles: 0, fallback: null };
+    const cache = command === 'graph-incremental' ? {
+      snapshot: validateSnapshot(await readJsonArtifact(option(rest, '--previous-snapshot') ?? usage())),
+      graph: validateGraph(await readJsonArtifact(option(rest, '--previous-graph') ?? usage())),
+      invalidatePaths: option(rest, '--invalidate-path') ? [option(rest, '--invalidate-path')!] : [],
+      stats,
+    } : undefined;
+    const graph = await buildGraph(target, option(rest, '--repo-id'), cache);
     validateGraph(graph);
     await outputSnapshot(graph, out, target);
     console.log(`Wrote graph with ${graph.stats.files} files, ${graph.stats.symbols} symbols and ${graph.stats.edges} edges`);
+    if (cache) console.log(`AST: reused=${stats.reusedFiles} parsed=${stats.parsedFiles}${stats.fallback ? ` fallback=${stats.fallback}` : ''}; inventory fully verified`);
   } else if (command === 'graph-validate') {
     if (rest.length) usage();
     const graph = validateGraph(await readJsonArtifact(target));

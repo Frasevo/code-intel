@@ -1,6 +1,6 @@
 # Frasevo Code Intel
 
-Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05 deterministic context queries and hash-verified evidence with a versioned CLI contract**. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
+Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05 deterministic context queries and hash-verified evidence with a versioned CLI contract**; CI-06A1 supports SHA-256-keyed incremental graph AST reuse. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
 
 This repository is independent of the Frasevo SaaS. All examples and fixtures are synthetic. It does not use AI, Ollama, Codex, API keys, external services, telemetry, or a database.
 
@@ -22,6 +22,10 @@ node src/cli.ts validate ../code-snapshot.json
 # CI-02: graph with imports, reexports, symbols, and reverse consumers.
 node src/cli.ts graph ./my-project --out ../code-graph.json --repo-id sample-project
 node src/cli.ts graph-validate ../code-graph.json
+# CI-06A1: first create a full snapshot + graph, then reuse them for later runs.
+node src/cli.ts graph-incremental ./my-project --repo-id sample-project \
+  --previous-snapshot ../code-snapshot.json --previous-graph ../code-graph.json \
+  --out ../next-code-graph.json --invalidate-path src/lib/widget.ts
 node src/cli.ts consumers ../code-graph.json --path src/lib/widget.ts
 
 # CI-03: static Next.js App Router API declarations, no network or code execution.
@@ -82,7 +86,7 @@ Import hashes are only producer claims. `validate` checks structural and interna
 3. **CI-03 (complete):** Next.js route registry, provenance and declared/tested/observed distinctions.
 4. **CI-04 (complete):** Markdown link/anchor references and traceability without executing the target repository.
 5. **CI-05 (implemented; CI validation pending):** deterministic context selection, hash-verified excerpts, and versioned read-only CLI `context-query/v1`.
-6. **CI-06:** incremental indexing and optional read-only MCP.
+6. **CI-06A1 (implemented):** reusable AST graph metadata validated against freshly hashed sources; CI-06A2 (pending) safe inventory acceleration; CI-06B (pending) optional read-only MCP.
 
 See [PENDIENTE.md](PENDIENTE.md) for the active roadmap. See [SECURITY.md](SECURITY.md) for safe use and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
 
@@ -180,3 +184,12 @@ The schema is [`schemas/context-query.v1.schema.json`](schemas/context-query.v1.
 ### Branch workflow
 
 Create `feat/ci-05c-context-cli` from updated `develop`, make **one coherent commit** for this delivery, submit a PR targeting **`develop` only**, and remove the feature branch after merging. **Do not merge or promote anything into `main` until explicitly instructed.** Local Node 22 testing requires experimental type stripping; the repository CI targets Node 24.
+
+## CI-06A1 incremental graph analysis
+
+`graph-incremental` takes locally produced `code-snapshot/v1` and `code-graph/v1` artifacts from the **same previous run and repo ID**. They form a private local cache, kept outside the target repository. The current scan always enumerates included files and verifies SHA-256 of their bytes. Only AST output for unchanged source hashes can be reused; the new `code-graph/v1` is fully rebuilt with current provenance and fingerprint. The CLI prints `AST: reused=N parsed=M` (and a fallback reason if necessary). There are no new published schema fields.
+
+- An edited TS/JS source invalidates its own cached AST automatically. Optionally pass `--invalidate-path <relative-file>` to force re-parse even with identical content; the library accepts multiple explicit paths. Denied paths are rejected.
+- Source file creation/deletion, changed JSON configuration (including `tsconfig.json`), unsupported previous producer versions and explicitly invalidated non-source paths force a complete AST pass. The previous snapshot, graph and repository identity must be mutually compatible. Source paths, symbols and imports in prior caches are **private, trusted local data**: an artifact fingerprint alone is not an authenticity signature against a maliciously forged cache.
+- Reuse saves AST parsing, not file hashing. An unmodified source can only be considered `filesystem-verified` because the current scanner still performs a full tree traversal and SHA-256 calculation. No filesystem event stream or `mtime`-only cache is trusted in this phase. Optimize traversal only when reliable completeness and the original verification claim can be preserved (CI-06A2).
+- Benchmark illustration (single local run, Node 22): 100 synthetic TS files with 25 exported functions each, one edited file; median full graph ~119 ms, incremental ~89 ms (four measurements after two warm-up runs); 99 files reused and 1 parsed, identical fingerprint. Measurements vary with file sizes, filesystem and machine. Official Node 24 Ubuntu/Windows validation is still pending.
