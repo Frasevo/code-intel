@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:frasevo:generic-file-inventory:v1",
+  "title": "Generic file inventory import (unverified)",
+  "type": "object",
+  "required": ["schemaVersion", "files"],
+  "properties": {
+    "schemaVersion": { "const": "generic-file-inventory/v1" },
+    "files": {
+      "type": "array", "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "sizeBytes"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "maxLength": 2048 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "language": { "type": "string" }
+        }
+      }
+    }
+  }
+}

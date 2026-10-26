@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:frasevo:code-snapshot:v1",
+  "title": "Code snapshot (included-files-only)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producerVersion", "repoId", "artifactId", "capturedAt", "sensitivity", "provenance", "files", "stats"],
+  "properties": {
+    "schemaVersion": { "const": "code-snapshot/v1" },
+    "producerVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "repoId": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$" },
+    "artifactId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "sensitivity": { "const": "private" },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "commitSha", "dirty", "verification", "coverage", "sourceTreeHash", "includedFilesHash"],
+      "properties": {
+        "kind": { "enum": ["filesystem-scan", "generic-import"] },
+        "commitSha": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{40}$" }] },
+        "dirty": { "type": ["boolean", "null"] },
+        "verification": { "enum": ["filesystem-verified", "unverified"] },
+        "coverage": { "const": "included-files-only" },
+        "sourceTreeHash": { "type": "null" },
+        "includedFilesHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "files": {
+      "type": "array", "maxItems": 100000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "sizeBytes", "sha256", "language"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "maxLength": 2048 },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "language": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "stats": {
+      "type": "object", "additionalProperties": false,
+      "required": ["files", "bytes"],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

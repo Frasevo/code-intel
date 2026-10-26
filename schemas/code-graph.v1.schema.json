@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:frasevo:code-graph:v1",
+  "title": "Static code graph (in-inventory only)",
+  "description": "Graph is private evidence for included source files, not proof of runtime dependencies or complete code coverage.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producerVersion", "artifactId", "repoId", "capturedAt", "sensitivity", "sourceSnapshot", "coverage", "nodes", "edges", "issues", "stats"],
+  "properties": {
+    "schemaVersion": { "const": "code-graph/v1" },
+    "producerVersion": { "type": "string", "minLength": 1 },
+    "artifactId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "repoId": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "sensitivity": { "const": "private" },
+    "sourceSnapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactId", "includedFilesHash", "commitSha", "dirty"],
+      "properties": {
+        "artifactId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "includedFilesHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "commitSha": { "type": ["string", "null"], "pattern": "^[a-f0-9]{40}$" },
+        "dirty": { "type": ["boolean", "null"] }
+      }
+    },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["declarations", "modules", "tsconfig", "sourceFiles", "analyzedFiles"],
+      "properties": {
+        "declarations": { "const": "top-level-only" },
+        "modules": { "const": "within-inventory-only" },
+        "tsconfig": { "enum": ["loaded", "missing", "partial"] },
+        "sourceFiles": { "type": "integer", "minimum": 0 },
+        "analyzedFiles": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "nodes": {
+      "type": "array", "maxItems": 500000,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object", "additionalProperties": false,
+            "required": ["kind", "id", "path", "sha256"],
+            "properties": {
+              "kind": { "const": "file" }, "id": { "type": "string", "minLength": 6 },
+              "path": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          },
+          {
+            "type": "object", "additionalProperties": false,
+            "required": ["kind", "id", "path", "sha256", "name", "declaration", "line", "column", "exported"],
+            "properties": {
+              "kind": { "const": "symbol" }, "id": { "type": "string", "minLength": 8 },
+              "path": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "name": { "type": "string" }, "declaration": { "type": "string" }, "line": { "type": "integer", "minimum": 1 },
+              "column": { "type": "integer", "minimum": 1 }, "exported": { "type": "boolean" }
+            }
+          }
+        ]
+      }
+    },
+    "edges": {
+      "type": "array", "maxItems": 1000000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["from", "to", "relation", "specifier", "symbols", "line", "column", "resolution", "typeOnly"],
+        "properties": {
+          "from": { "type": "string" }, "to": { "type": ["string", "null"] },
+          "relation": { "enum": ["import", "reexport", "dynamic-import", "require", "export", "consumer"] },
+          "specifier": { "type": ["string", "null"] }, "symbols": { "type": "array", "items": { "type": "string" } },
+          "line": { "type": "integer", "minimum": 1 }, "column": { "type": "integer", "minimum": 1 },
+          "resolution": { "enum": ["resolved", "unknown", "external", "declared"] }, "typeOnly": { "type": "boolean" }
+        }
+      }
+    },
+    "issues": {
+      "type": "array", "maxItems": 100000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "code", "line", "column"],
+        "properties": { "path": { "type": "string" }, "code": { "type": "string" }, "line": { "type": "integer", "minimum": 1 }, "column": { "type": "integer", "minimum": 1 } }
+      }
+    },
+    "stats": {
+      "type": "object", "additionalProperties": false,
+      "required": ["files", "symbols", "edges", "unresolved"],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 }, "symbols": { "type": "integer", "minimum": 0 },
+        "edges": { "type": "integer", "minimum": 0 }, "unresolved": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}
