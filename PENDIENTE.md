@@ -13,7 +13,7 @@
 | CI-03 | Terminado | Catálogo estático Next.js `api-catalog/v1`, métodos declarados, trazabilidad de reexports y semántica `unknown`. |
 | CI-04 | Implementado; pendiente de validar en CI Node 24 | Referencias Markdown/MDX `doc-trace/v1`, encabezados, enlaces a archivos y rutas API, CLI y pruebas. |
 | CI-05 | CI-05A/B/C implementados; pendiente validar en CI Node 24 | Selección acotada, fragmentos verificados, CLI offline y contrato `context-query/v1`. |
-| CI-06 | CI-06A1 implementado; CI-06A2 y CI-06B pendientes | Reutilización AST por SHA-256, pendiente acelerar inventario; MCP opcional de solo lectura. |
+| CI-06 | CI-06A1/A2 implementados; CI-06B pendiente de decisión | Reutilización AST por SHA-256, escaneo con hashing concurrente y verificación completa; MCP opcional. |
 
 ## Último core implementado: CI-05 — Contexto recuperable y citado
 
@@ -26,17 +26,19 @@
 ## CI-06 — Rendimiento e integración opcional
 
 - **CI-06A1 — IMPLEMENTADO:** `graph-incremental` reutiliza nodos, relaciones y diagnósticos AST de ficheros sin cambios SHA-256 frente a un snapshot/grafo anteriores validados; admite `--invalidate-path`; ante altas/bajas de fuentes TS/JS, cambios JSON o versión distinta, hace reanálisis completo. La salida sigue siendo `code-graph/v1`, con misma huella que una ejecución completa. Cuatro pruebas añadidas (suite: 38/38, Node 22 experimental). Primera iteración: 0.6.0.
-- **CI-06A2 — PENDIENTE:** reducir el recorrido de inventario **sin perder** la garantía `filesystem-verified` del contrato v1. Diseñar un mecanismo de cambios completo y confiable (incluidas altas, bajas y exclusiones) o declarar explícitamente que el recorrido completo sigue siendo obligatorio. No reutilizar hashes a partir solo de `mtime` ni alegar validación de archivos omitidos. Medir en repositorios grandes y con cambios de configuración.
+- **CI-06A2 — IMPLEMENTADO (0.6.1):** hashing limitado a cuatro operaciones simultáneas y poda anticipada de rutas excluidas; enumeración completa de directorios permitidos y SHA-256 fresco de todos los archivos incluidos. Sin cachear el inventario por `mtime` ni afirmar que se omite el recorrido. Tres pruebas nuevas (suite: 41/41 en Node 22 experimental). Criterios: (1) mismos contratos y resultados estables; (2) altas/bajas/ediciones y límites detectados; (3) mejora de rendimiento medida localmente. **No es un escaneo incremental del árbol.**
 - **CI-06B — PENDIENTE de decisión técnica:** estudiar un adaptador MCP de solo lectura para consultas a `context-query/v1`, con permisos explícitos; sin agente ni LLM dentro del indexador.
 - Mantener la división por entregas pequeñas, tres criterios de aceptación como máximo; sin tareas de MCP en CI-06A.
+
+**Medición CI-06A2:** 400 archivos TS sintéticos, ocho mediciones emparejadas tras tres calentamientos en Node 22: mediana escáner anterior ~272 ms, nuevo ~85 ms. No incluye análisis AST; resultados orientativos, dependientes de hardware/IO. **Se siguen hasheando todos los archivos admitidos.**
 
 **Medición CI-06A1:** repositorio sintético temporal de 100 archivos TS con 25 funciones por archivo y modificación en uno. Mediana local con Node 22 sobre cuatro ejecuciones tras dos calentamientos: grafo completo ~119 ms, incremental ~89 ms, 99 AST reutilizados/1 parseado; mismo `artifactId`. Referencia orientativa, no benchmark reproducible bajo CI ni garantía general. **El snapshot sigue enumerando y calculando SHA-256 de todos los archivos.**
 
 ## Validaciones pendientes
 
-- Ejecutar `npm ci --ignore-scripts --no-audit --no-fund`, `npm run typecheck` y `npm test` con Node.js 24 en Ubuntu y Windows tras integrar CI-05A/B/C en `develop`.
+- Ejecutar `npm ci --ignore-scripts --no-audit --no-fund`, `npm run typecheck` y `npm test` con Node.js 24 en Ubuntu y Windows tras integrar CI-05/06 en `develop`.
 - Verificar manualmente consultas `docs-target`, `selectContext` y `buildEvidencePack` y los comandos `context-select`/`context-evidence` con un repositorio de prueba independiente, manteniendo los artefactos fuera de su raíz.
-- Evaluar el rendimiento en repositorios grandes. CI-06A1 evita parsear AST de archivos iguales pero **no evita** volver a recorrer y hashear el repositorio; CI-05A/B/C siguen verificando los cuatro índices y CI-04 reescanea parcialmente la fuente.
+- Evaluar rendimientos en repositorios grandes y en sistemas Windows/red, con cambios de `tsconfig.json`. CI-06A1 reduce trabajo AST y CI-06A2 acelera el hashing de I/O, pero **ambos siguen recorriendo y hasheando toda fuente incluida**; CI-05A/B/C verifican cuatro índices y CI-04 reescanea parcialmente la fuente.
 
 ## Reglas técnicas
 

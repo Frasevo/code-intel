@@ -76,7 +76,8 @@ test('CI-05B never returns source bytes for stale files or linked replacements',
     assert.equal(hit?.verification, 'failed');
     assert.equal(hit?.reason, 'source-unavailable');
     assert.equal(hit?.excerpt, null);
-    assert.ok(!JSON.stringify(stale).includes('999'));
+    // Fingerprints can coincidentally contain these digits; check excerpt content only.
+    assert.ok(stale.records.every(record => !record.excerpt?.text.includes('[999]')));
 
     const outside = join(f.parent, 'outside.ts');
     await writeFile(outside, 'export const getItems = "outside forbidden";\n');
