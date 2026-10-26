@@ -1,6 +1,6 @@
 {
   "name": "@frasevo/code-intel",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "type": "module",
   "description": "Offline code inventory, TypeScript graphs, API catalog, docs and versioned context/evidence queries",
@@ -25,7 +25,8 @@
     "docs:target": "node src/cli.ts docs-target",
     "context:select": "node src/cli.ts context-select",
     "context:evidence": "node src/cli.ts context-evidence",
-    "context:validate": "node src/cli.ts context-validate"
+    "context:validate": "node src/cli.ts context-validate",
+    "mcp": "node src/cli.ts mcp-stdio"
   },
   "license": "Apache-2.0",
   "dependencies": {

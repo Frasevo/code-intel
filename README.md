@@ -203,3 +203,40 @@ Create a new `feat/ci-XX-*` branch from updated `develop` for each core, make **
 - Contract remains `code-snapshot/v1`, with no new schema fields. Native read-only behavior, policy exclusions, file/total size caps, and symlink rejection are unchanged.
 - New tests check deterministic ordering across many files, create/delete/mtime-preserving rewrites and exclusion/symlink/size protections. Tests use synthetic content only.
 - Local illustrative Node 22 benchmark: 400 small/mid-sized TypeScript files, same filesystem, eight paired measurements after three warm-ups, medians **~272 ms** (CI-06A1 scanner) and **~85 ms** (CI-06A2 scanner). Includes file enumeration and hashing; excludes AST indexing. Results are machine-specific and may reverse on some disks, network filesystems or file distributions. Large repository and Node 24 CI benchmarks remain pending.
+
+## CI-06B1: MCP local de solo lectura (adaptador experimental)
+
+`mcp-stdio` permite usar los índices existentes desde un cliente MCP **local**.
+El servidor implementa el intercambio MCP/JSON-RPC por `stdio` de la generación
+**2025-11-25** (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`, `ping`).
+Los clientes MCP de 2026 deben permitir retroceder al protocolo 2025; este
+adaptador todavía **no** implementa `server/discover` ni el modo 2026-07-28.
+No abre puertos, no ejecuta archivos del repositorio, no genera índices y no hace peticiones a Internet.
+
+Preparar fuera del repositorio los cuatro índices coherentes (snapshot, graph,
+api y docs) con los comandos ya documentados. Después, configurar un cliente
+MCP para ejecutar el siguiente proceso local (usar rutas **absolutas**):
+
+```sh
+node /ruta/frasevo-code-intel/src/cli.ts mcp-stdio /ruta/proyecto \
+  --snapshot /ruta/indices/snapshot.json \
+  --graph /ruta/indices/graph.json \
+  --api /ruta/indices/api.json \
+  --docs /ruta/indices/docs.json
+```
+
+El cliente verá únicamente `frasevo_context_select`, que consulta metadatos
+estáticos y devuelve un `context-query/v1` marcado como **private**. Para activar
+la lectura de fragmentos verificados, añadir manualmente `--allow-evidence`
+al comando de arranque: habilita `frasevo_context_evidence`. Los argumentos del
+cliente **no** admiten cambiar la raíz, los archivos de índices ni permisos.
+Las rutas y límites se validan de nuevo en cada llamada.
+
+**Privacidad:** conectar el servidor a un cliente MCP permite que ese cliente
+reciba metadatos del código y, con `--allow-evidence`, fragmentos del mismo.
+Solo habilitarlo en clientes de confianza; el proceso local **no puede controlar**
+lo que el cliente transmita a modelos o proveedores externos.
+Las respuestas pueden quedar obsoletas respecto al último escaneo; los
+fragmentos requieren coincidencia SHA-256 en el momento de lectura.
+No se han probado clientes MCP externos reales ni la compatibilidad MCP 2026;
+se reserva una integración con el SDK oficial v2 para otra entrega si hace falta.
