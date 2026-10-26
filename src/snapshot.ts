@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { languageFor, permittedPath } from './policy.ts';
 
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
 export const SNAPSHOT_SCHEMA = 'code-snapshot/v1';
 export type FileEntry = { path: string; sizeBytes: number; sha256: string; language: string };
 export type Snapshot = {

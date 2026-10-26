@@ -1,6 +1,6 @@
 # Frasevo Code Intel
 
-Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, and **CI-04 Markdown documentation traceability**. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
+Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05A bounded deterministic selection**. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
 
 This repository is independent of the Frasevo SaaS. All examples and fixtures are synthetic. It does not use AI, Ollama, Codex, API keys, external services, telemetry, or a database.
 
@@ -81,7 +81,7 @@ Import hashes are only producer claims. `validate` checks structural and interna
 2. **CI-02 (complete):** TypeScript AST symbols, in-inventory dependencies and reverse consumers.
 3. **CI-03 (complete):** Next.js route registry, provenance and declared/tested/observed distinctions.
 4. **CI-04 (complete):** Markdown link/anchor references and traceability without executing the target repository.
-5. **CI-05:** bounded, source-cited context retrieval with deterministic fallback.
+5. **CI-05A (implemented):** in-memory deterministic selection from validated v1 indexes; CI-05B/C remain pending.
 6. **CI-06:** incremental indexing and optional read-only MCP.
 
 See [PENDIENTE.md](PENDIENTE.md) for the active roadmap. See [SECURITY.md](SECURITY.md) for safe use and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
@@ -120,8 +120,16 @@ Dependencies show direct static imports and reexports of the route file (with so
 - This core deliberately does **not** implement full CommonMark, MDX JSX links, wiki links, HTML anchors, link text inspection, runtime documentation generation, endpoint probes, API examples, dependency transitive reachability, or doc-to-symbol inference. Complex nested Markdown/parenthesized paths may be missed. CI-05/06 can extend indexing and performance without changing v1 semantics.
 - Fingerprints bind output content and referenced upstream artifact IDs (excluding `capturedAt`); they do not provide cryptographic proof of repository ownership or prevent someone from forging a whole JSON artifact. Repeat scanning against a trusted checkout for stronger assurance.
 
+## CI-05A context selector (programmatic API only)
+
+`src/context.ts` exposes `selectContext({ snapshot, graph, api, docs }, { path?, keyword?, depth?, maxResults?, maxBytes? })`. This implementation **does not read source files, use the network, run code, or contact an LLM**. Callers supply v1 artifacts generated for the same checkout; it validates artifact fingerprints, repository identities, provenance and cross-index file hashes before returning any results.
+
+- Use exact inventory-relative paths, or exact declared API paths such as `/api/items`; keyword matching is case-insensitive over indexed paths, declared symbol names, route paths, and heading slugs. Neither file contents nor non-indexed descriptions are searched.
+- Optional `depth` is 0–2 (default 0); expansions run from an exact file or route path across resolved TypeScript graph edges and resolved document links. A relationship is static evidence only; consumer edges are not execution traces. Incoming document links, fuzzy route parameters and heuristic interpretations are not inferred.
+- Each hit includes its source schema (`code-snapshot/v1`, `code-graph/v1`, `api-catalog/v1` or `doc-trace/v1`), corresponding artifact ID and record reference, with source path/line/column when available. Results are deterministically ranked (exact path, partial path, keyword, relations), with stable tie-breakers. `no-match` means not found in the **included indexes only**.
+- Default limits: 20 results, 16 KiB JSON output; hard limits: 50 results, 64 KiB JSON, depth 2 and 5,000 candidates. `truncated=true` reports a bounded partial selection. If query metadata itself exceeds the requested byte limit, the query is rejected. Unverified source content, runtime proof, authentication, request/response schemas and testing status are **not supplied**.
+- CI-05B will add hash-verified excerpts; CI-05C will define a stable versioned response schema and CLI. Do not treat this provisional TypeScript API as a public contract.
+
 ### Branch workflow
 
-Create `feat/ci-04-doc-trace` from `develop`, commit all changes as a single coherent feature commit, then submit a PR into `develop`. After the PR is merged, delete the feature branch locally and remotely. Do not merge directly into `main`.
-
-**Development workflow:** create `feat/ci-XX-*` from updated `develop`; one functional commit per phase; validate and open PR targeting `develop`. Only after the PR is merged and verification passes, delete the feature branch locally and remotely. Releases of `develop` into `main` are separate PRs. Local tests on Node 22 require experimental TypeScript stripping; CI targets Node 24.
+Create `feat/ci-05a-context-selection` from current `develop`, make **one commit** for this coherent change, submit a PR targeting **`develop` only**, and delete the feature branch after merging. **Do not merge or promote anything into `main` until explicitly instructed.** Local Node 22 testing requires experimental type stripping; the repository CI targets Node 24.
