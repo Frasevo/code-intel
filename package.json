@@ -1,0 +1,16 @@
+{
+  "name": "@frasevo/code-intel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline, read-only code inventory and versioned snapshots",
+  "packageManager": "pnpm@12.8.1",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "scan": "node src/cli.ts scan",
+    "import": "node src/cli.ts import",
+    "validate": "node src/cli.ts validate",
+    "test": "node --test tests/scanner.test.ts"
+  },
+  "license": "Apache-2.0"
+}
