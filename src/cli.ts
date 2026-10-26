@@ -8,9 +8,10 @@ import { importArtifact, readJsonArtifact } from './importer.ts';
 import { validateSnapshot, type Snapshot } from './snapshot.ts';
 import { buildGraph, validateGraph, consumersOf, type Graph } from './graph.ts';
 import { buildApiCatalog, validateApiCatalog, findApiRoute, type ApiCatalog } from './api-registry.ts';
+import { buildDocTrace, validateDocTrace, referencesFrom, referencesTo, type DocTrace } from './docs.ts';
 
 function usage(): never {
-  throw new Error('Usage: api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
+  throw new Error('Usage: docs <repo> --out <file> [--repo-id <id>] | docs-validate <index> | docs-file <index> --path <doc> | docs-target <index> --path <target> | api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
 }
 
 function option(args: string[], name: string): string | undefined {
@@ -34,7 +35,7 @@ function within(root: string, destination: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-async function outputSnapshot(snapshot: Snapshot | Graph | ApiCatalog, output: string, scanRoot?: string): Promise<void> {
+async function outputSnapshot(snapshot: Snapshot | Graph | ApiCatalog | DocTrace, output: string, scanRoot?: string): Promise<void> {
   const target = resolve(output);
   const dir = await realpath(dirname(target));
   const destination = resolve(dir, basename(target));
@@ -56,7 +57,25 @@ async function outputSnapshot(snapshot: Snapshot | Graph | ApiCatalog, output: s
 export async function main(args: string[]): Promise<void> {
   const [command, target, ...rest] = args;
   if (!target || target.startsWith('--')) usage();
-  if (command === 'api') {
+  if (command === 'docs') {
+    checkArgs(rest, new Set(['--out', '--repo-id']));
+    const out = option(rest, '--out');
+    if (!out) usage();
+    const docs = await buildDocTrace(target, option(rest, '--repo-id'));
+    validateDocTrace(docs);
+    await outputSnapshot(docs, out, target);
+    console.log(`Wrote ${docs.stats.documents} documents and ${docs.stats.references} references`);
+  } else if (command === 'docs-validate') {
+    if (rest.length) usage();
+    const docs = validateDocTrace(await readJsonArtifact(target));
+    console.log(`Valid ${docs.schemaVersion} (${docs.artifactId})`);
+  } else if (command === 'docs-file' || command === 'docs-target') {
+    checkArgs(rest, new Set(['--path']));
+    const path = option(rest, '--path');
+    if (!path) usage();
+    const docs = validateDocTrace(await readJsonArtifact(target));
+    console.log(JSON.stringify(command === 'docs-file' ? referencesFrom(docs, path) : referencesTo(docs, path), null, 2));
+  } else if (command === 'api') {
     checkArgs(rest, new Set(['--out', '--repo-id']));
     const out = option(rest, '--out');
     if (!out) usage();
