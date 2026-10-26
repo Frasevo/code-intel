@@ -1,6 +1,6 @@
 # Frasevo Code Intel
 
-Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, and **CI-04 Markdown documentation traceability**. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
+Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05 deterministic context queries and hash-verified evidence with a versioned CLI contract**; CI-06 supports SHA-256-keyed AST reuse and a bounded-concurrency scanner with full file verification. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
 
 This repository is independent of the Frasevo SaaS. All examples and fixtures are synthetic. It does not use AI, Ollama, Codex, API keys, external services, telemetry, or a database.
 
@@ -22,6 +22,10 @@ node src/cli.ts validate ../code-snapshot.json
 # CI-02: graph with imports, reexports, symbols, and reverse consumers.
 node src/cli.ts graph ./my-project --out ../code-graph.json --repo-id sample-project
 node src/cli.ts graph-validate ../code-graph.json
+# CI-06A1: first create a full snapshot + graph, then reuse them for later runs.
+node src/cli.ts graph-incremental ./my-project --repo-id sample-project \
+  --previous-snapshot ../code-snapshot.json --previous-graph ../code-graph.json \
+  --out ../next-code-graph.json --invalidate-path src/lib/widget.ts
 node src/cli.ts consumers ../code-graph.json --path src/lib/widget.ts
 
 # CI-03: static Next.js App Router API declarations, no network or code execution.
@@ -81,8 +85,8 @@ Import hashes are only producer claims. `validate` checks structural and interna
 2. **CI-02 (complete):** TypeScript AST symbols, in-inventory dependencies and reverse consumers.
 3. **CI-03 (complete):** Next.js route registry, provenance and declared/tested/observed distinctions.
 4. **CI-04 (complete):** Markdown link/anchor references and traceability without executing the target repository.
-5. **CI-05:** bounded, source-cited context retrieval with deterministic fallback.
-6. **CI-06:** incremental indexing and optional read-only MCP.
+5. **CI-05 (implemented; CI validation pending):** deterministic context selection, hash-verified excerpts, and versioned read-only CLI `context-query/v1`.
+6. **CI-06A1/A2 (implemented; integration validation pending):** reusable AST graph metadata and bounded-concurrency inventory hashing; CI-06B (pending decision) optional read-only MCP.
 
 See [PENDIENTE.md](PENDIENTE.md) for the active roadmap. See [SECURITY.md](SECURITY.md) for safe use and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
 
@@ -120,8 +124,119 @@ Dependencies show direct static imports and reexports of the route file (with so
 - This core deliberately does **not** implement full CommonMark, MDX JSX links, wiki links, HTML anchors, link text inspection, runtime documentation generation, endpoint probes, API examples, dependency transitive reachability, or doc-to-symbol inference. Complex nested Markdown/parenthesized paths may be missed. CI-05/06 can extend indexing and performance without changing v1 semantics.
 - Fingerprints bind output content and referenced upstream artifact IDs (excluding `capturedAt`); they do not provide cryptographic proof of repository ownership or prevent someone from forging a whole JSON artifact. Repeat scanning against a trusted checkout for stronger assurance.
 
+## CI-05A context selector (programmatic API only)
+
+`src/context.ts` exposes `selectContext({ snapshot, graph, api, docs }, { path?, keyword?, depth?, maxResults?, maxBytes? })`. This implementation **does not read source files, use the network, run code, or contact an LLM**. Callers supply v1 artifacts generated for the same checkout; it validates artifact fingerprints, repository identities, provenance and cross-index file hashes before returning any results.
+
+- Use exact inventory-relative paths, or exact declared API paths such as `/api/items`; keyword matching is case-insensitive over indexed paths, declared symbol names, route paths, and heading slugs. Neither file contents nor non-indexed descriptions are searched.
+- Optional `depth` is 0–2 (default 0); expansions run from an exact file or route path across resolved TypeScript graph edges and resolved document links. A relationship is static evidence only; consumer edges are not execution traces. Incoming document links, fuzzy route parameters and heuristic interpretations are not inferred.
+- Each hit includes its source schema (`code-snapshot/v1`, `code-graph/v1`, `api-catalog/v1` or `doc-trace/v1`), corresponding artifact ID and record reference, with source path/line/column when available. Results are deterministically ranked (exact path, partial path, keyword, relations), with stable tie-breakers. `no-match` means not found in the **included indexes only**.
+- Default limits: 20 results, 16 KiB JSON output; hard limits: 50 results, 64 KiB JSON, depth 2 and 5,000 candidates. `truncated=true` reports a bounded partial selection. If query metadata itself exceeds the requested byte limit, the query is rejected. Unverified source content, runtime proof, authentication, request/response schemas and testing status are **not supplied**.
+- CI-05B adds hash-verified excerpts, while CI-05C wraps both outputs in a versioned `context-query/v1` contract and exposes them through the CLI. The TypeScript selector result by itself remains internal.
+
+## CI-05B evidence pack (programmatic API only)
+
+`src/evidence.ts` exposes `buildEvidencePack(root, indexes, contextQuery, limits?)`. Supply an existing `ContextIndexes` value from CI-05A, a local checkout root and a query. It first validates all four indexes and uses `selectContext`; it then reads **only source files with indexed line/column coordinates**, with the existing `verifiedRead()` checks (permitted relative path, in-root real path, no linked parents/files, expected byte size and SHA-256). Source bytes are never returned for failed reads. The function itself remains a private TypeScript API; CI-05C provides its versioned CLI wrapper.
+
+- Each result carries the selected hit and its artifact reference plus `status`, `verification`, `reason`, `expectedSha256` and a nullable excerpt with `sourcePath`, start/end line, first-column offset, text and truncation flag. `indexed` means that the source file matches the **supplied** snapshot hash and the indexed location exists; it never means the code executes or the interpretation is true. `unknown` is used for unavailable/changed files or invalid positions, and `not-checked` for non-positioned hits and reading-budget exhaustion. `no-match` is only no match **among included indexes**.
+- Defaults: 5 lines, 640 UTF-16 code units, 8 distinct source files, 16 MiB total source reads and 32 KiB output. Hard maximums: 12 lines, 2048 UTF-16 code units, 20 source files, 32 MiB input and 64 KiB JSON output. The CI-05A context query maintains its separate maximums of 50 hits, 64 KiB and 2 relation levels. Long lines are cropped **around the indexed column**; line endings in excerpts are normalized to `\n`. `truncated` indicates output or selection limits; the excerpt-level flag indicates missing surrounding lines or cropped content.
+- The file-reader verifies bytes against the supplied hash, but this **does not authenticate the provenance of user-provided indexes**, commit identity, or repository ownership; it also does not prevent sensitive string literals within permitted source files. Keep evidence private and review before sharing. There is no whole-repository completeness guarantee, no external evidence and no runtime/security proof.
+
+Example (TypeScript, using already-built indexes):
+
+```ts
+import { buildEvidencePack } from './src/evidence.ts';
+
+const pack = await buildEvidencePack('./my-project', indexes, {
+  path: 'src/lib/items.ts', keyword: 'getItems', depth: 1,
+}, { maxLines: 3, maxChars: 400 });
+// pack.records: only hash-verified excerpts are status === 'indexed'
+```
+
+## CI-05C — Versioned queries from existing indexes
+
+The read-only `context-select` and `context-evidence` commands accept the **same four prebuilt indexes** for one checkout. Reuse artifacts from CI-01 through CI-04; no implicit reindexing or execution occurs. The repository root is mandatory to prevent writing the output into the source tree. It is accessed only for bounded, verified excerpt reads in evidence mode. Save indexes and response JSON **outside** the scanned repository.
+
+```sh
+# Run after scan, graph, api and docs with the same --repo-id, unchanged checkout.
+node src/cli.ts context-select ./my-project \
+  --snapshot ../code-snapshot.json --graph ../code-graph.json \
+  --api ../api-catalog.json --docs ../doc-trace.json \
+  --path src/lib/items.ts --depth 1 --max-results 20 \
+  --out ../context-selection.json
+
+node src/cli.ts context-evidence ./my-project \
+  --snapshot ../code-snapshot.json --graph ../code-graph.json \
+  --api ../api-catalog.json --docs ../doc-trace.json \
+  --keyword getItems --max-lines 3 --max-chars 400 \
+  --out ../context-evidence.json
+
+node src/cli.ts context-validate ../context-evidence.json
+```
+
+The schema is [`schemas/context-query.v1.schema.json`](schemas/context-query.v1.schema.json), and `src/context-artifact.ts` exposes `createContextArtifact()` and `validateContextArtifact()` to application code. Both CLI modes produce a **private** envelope with `schemaVersion: "context-query/v1"`, `producerVersion`, `repoId`, `artifactId`, `sensitivity`, `mode` and `result`. The `result.sources` field lists the IDs of all four original indexes; `mode=selection` gives ordered `hits`, while `mode=evidence` gives annotated `records` with excerpt positions and status.
+
+- The `artifactId` is SHA-256 of the UTF-8 JSON body **without** `artifactId`, with object keys recursively sorted. This makes results reproducible regardless of JSON formatting or object key ordering. It is an **integrity fingerprint, not a signature** or evidence that the source is authentic/current. Do not treat hand-crafted self-consistent JSON as independently verified evidence.
+- `--path` and/or `--keyword` is mandatory. Path accepts an included relative path or exact `/api/` route path. `--depth` 0–2, `--max-results` 1–50 (default 20), `--max-bytes` 2048–65536 (default 16384); the independent `--max-lines`, `--max-chars`, `--max-source-files`, `--max-source-bytes` and `--max-pack-bytes` limits apply only to `context-evidence` as documented above. Output limits are enforced prior to writing. Rejected/unknown arguments, duplicates, malformed numeric flags and incompatible indexes fail closed.
+- Source excerpts are returned only when the current file bytes match the supplied snapshot SHA-256. `not-checked` does **not** mean success, and `unknown` never includes unreadable/unverified bytes. The CLI does not claim test coverage, runtime reachability, access permissions, production behavior or completeness of excluded files.
+- CLI writes are atomic and reject symlink destinations; the resolved output directory must exist and be outside the scanned root. Results may include internal paths and literal permitted source text, so they must not be published without review. Keep potentially confidential indexes and result files out of version control.
+
 ### Branch workflow
 
-Create `feat/ci-04-doc-trace` from `develop`, commit all changes as a single coherent feature commit, then submit a PR into `develop`. After the PR is merged, delete the feature branch locally and remotely. Do not merge directly into `main`.
+Create a new `feat/ci-XX-*` branch from updated `develop` for each core, make **one coherent commit**, submit a PR targeting **`develop` only**, and remove the feature branch after merging. **Do not merge or promote anything into `main` until explicitly instructed.** Local Node 22 testing requires experimental type stripping; the repository CI targets Node 24.
 
-**Development workflow:** create `feat/ci-XX-*` from updated `develop`; one functional commit per phase; validate and open PR targeting `develop`. Only after the PR is merged and verification passes, delete the feature branch locally and remotely. Releases of `develop` into `main` are separate PRs. Local tests on Node 22 require experimental TypeScript stripping; CI targets Node 24.
+## CI-06A1 incremental graph analysis
+
+`graph-incremental` takes locally produced `code-snapshot/v1` and `code-graph/v1` artifacts from the **same previous run and repo ID**. They form a private local cache, kept outside the target repository. The current scan always enumerates included files and verifies SHA-256 of their bytes. Only AST output for unchanged source hashes can be reused; the new `code-graph/v1` is fully rebuilt with current provenance and fingerprint. The CLI prints `AST: reused=N parsed=M` (and a fallback reason if necessary). There are no new published schema fields.
+
+- An edited TS/JS source invalidates its own cached AST automatically. Optionally pass `--invalidate-path <relative-file>` to force re-parse even with identical content; the library accepts multiple explicit paths. Denied paths are rejected.
+- Source file creation/deletion, changed JSON configuration (including `tsconfig.json`), unsupported previous producer versions and explicitly invalidated non-source paths force a complete AST pass. The previous snapshot, graph and repository identity must be mutually compatible. Source paths, symbols and imports in prior caches are **private, trusted local data**: an artifact fingerprint alone is not an authenticity signature against a maliciously forged cache.
+- Reuse saves AST parsing, not file hashing. An unmodified source can only be considered `filesystem-verified` because the current scanner still performs a full tree traversal and SHA-256 calculation. No filesystem event stream or `mtime`-only cache is trusted in this phase. CI-06A2 improves scanning throughput without skipping enumeration or hashing.
+- Benchmark illustration (single local run, Node 22): 100 synthetic TS files with 25 exported functions each, one edited file; median full graph ~119 ms, incremental ~89 ms (four measurements after two warm-up runs); 99 files reused and 1 parsed, identical fingerprint. Measurements vary with file sizes, filesystem and machine. Official Node 24 Ubuntu/Windows validation is still pending.
+
+## CI-06A2 safe inventory throughput
+
+`scan`, `graph` and `graph-incremental` share `scanRepository()`. It now overlaps hashing I/O for **up to four files at a time**, bounded by a fixed cap on simultaneously open file handles. The directory traversal still enumerates every permitted directory; every included file still gets a freshly computed SHA-256 from its bytes, with pre/post metadata checks. The scanner avoids entering excluded directories and avoids resolving disallowed files. Its result is sorted canonically by `createSnapshot()`, so completion order does not alter the artifact ID.
+
+**No change journal or trusted filesystem watcher is available.** `mtime`, file size, Git status and an earlier hash cannot authorize skipping a file. This is an I/O scheduling improvement, not a partial scan. File additions, removals, equal-size edits and policy exclusions remain accounted for in full scans. Like other filesystem scanners, it does not promise an atomic cross-file snapshot during concurrent external writes; changes detected while a file is read cause an error.
+
+- Contract remains `code-snapshot/v1`, with no new schema fields. Native read-only behavior, policy exclusions, file/total size caps, and symlink rejection are unchanged.
+- New tests check deterministic ordering across many files, create/delete/mtime-preserving rewrites and exclusion/symlink/size protections. Tests use synthetic content only.
+- Local illustrative Node 22 benchmark: 400 small/mid-sized TypeScript files, same filesystem, eight paired measurements after three warm-ups, medians **~272 ms** (CI-06A1 scanner) and **~85 ms** (CI-06A2 scanner). Includes file enumeration and hashing; excludes AST indexing. Results are machine-specific and may reverse on some disks, network filesystems or file distributions. Large repository and Node 24 CI benchmarks remain pending.
+
+## CI-06B1: MCP local de solo lectura (adaptador experimental)
+
+`mcp-stdio` permite usar los índices existentes desde un cliente MCP **local**.
+El servidor implementa el intercambio MCP/JSON-RPC por `stdio` de la generación
+**2025-11-25** (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`, `ping`).
+Los clientes MCP de 2026 deben permitir retroceder al protocolo 2025; este
+adaptador todavía **no** implementa `server/discover` ni el modo 2026-07-28.
+No abre puertos, no ejecuta archivos del repositorio, no genera índices y no hace peticiones a Internet.
+
+Preparar fuera del repositorio los cuatro índices coherentes (snapshot, graph,
+api y docs) con los comandos ya documentados. Después, configurar un cliente
+MCP para ejecutar el siguiente proceso local (usar rutas **absolutas**):
+
+```sh
+node /ruta/frasevo-code-intel/src/cli.ts mcp-stdio /ruta/proyecto \
+  --snapshot /ruta/indices/snapshot.json \
+  --graph /ruta/indices/graph.json \
+  --api /ruta/indices/api.json \
+  --docs /ruta/indices/docs.json
+```
+
+El cliente verá únicamente `frasevo_context_select`, que consulta metadatos
+estáticos y devuelve un `context-query/v1` marcado como **private**. Para activar
+la lectura de fragmentos verificados, añadir manualmente `--allow-evidence`
+al comando de arranque: habilita `frasevo_context_evidence`. Los argumentos del
+cliente **no** admiten cambiar la raíz, los archivos de índices ni permisos.
+Las rutas y límites se validan de nuevo en cada llamada.
+
+**Privacidad:** conectar el servidor a un cliente MCP permite que ese cliente
+reciba metadatos del código y, con `--allow-evidence`, fragmentos del mismo.
+Solo habilitarlo en clientes de confianza; el proceso local **no puede controlar**
+lo que el cliente transmita a modelos o proveedores externos.
+Las respuestas pueden quedar obsoletas respecto al último escaneo; los
+fragmentos requieren coincidencia SHA-256 en el momento de lectura.
+No se han probado clientes MCP externos reales ni la compatibilidad MCP 2026;
+se reserva una integración con el SDK oficial v2 para otra entrega si hace falta.

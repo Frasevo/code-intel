@@ -1,9 +1,9 @@
 {
   "name": "@frasevo/code-intel",
-  "version": "0.4.0",
+  "version": "0.6.2",
   "private": true,
   "type": "module",
-  "description": "Offline code inventory, TypeScript dependency graphs and static Next.js API route catalog and Markdown documentation traceability",
+  "description": "Offline code inventory, TypeScript graphs, API catalog, docs and versioned context/evidence queries",
   "packageManager": "pnpm@12.8.1",
   "engines": {
     "node": ">=24 <25"
@@ -22,7 +22,11 @@
     "docs": "node src/cli.ts docs",
     "docs:validate": "node src/cli.ts docs-validate",
     "docs:file": "node src/cli.ts docs-file",
-    "docs:target": "node src/cli.ts docs-target"
+    "docs:target": "node src/cli.ts docs-target",
+    "context:select": "node src/cli.ts context-select",
+    "context:evidence": "node src/cli.ts context-evidence",
+    "context:validate": "node src/cli.ts context-validate",
+    "mcp": "node src/cli.ts mcp-stdio"
   },
   "license": "Apache-2.0",
   "dependencies": {

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frasevo.dev/schemas/context-query.v1.schema.json",
+  "title": "Frasevo Code Intel context-query/v1 private response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "producerVersion", "repoId", "artifactId", "sensitivity", "mode", "result"],
+  "properties": {
+    "schemaVersion": { "const": "context-query/v1" },
+    "producerVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "repoId": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$" },
+    "artifactId": { "$ref": "#/$defs/id" },
+    "sensitivity": { "const": "private" },
+    "mode": { "enum": ["selection", "evidence"] },
+    "result": { "oneOf": [{ "$ref": "#/$defs/selection" }, { "$ref": "#/$defs/evidence" }] }
+  },
+  "allOf": [
+    { "if": { "properties": { "mode": { "const": "selection" } } }, "then": { "properties": { "result": { "$ref": "#/$defs/selection" } } } },
+    { "if": { "properties": { "mode": { "const": "evidence" } } }, "then": { "properties": { "result": { "$ref": "#/$defs/evidence" } } } }
+  ],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "filePath": { "type": "string", "minLength": 1, "maxLength": 2048, "description": "Normalized relative, policy-permitted inventory path; additionally checked by the implementation." },
+    "query": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "keyword", "depth", "maxResults", "maxBytes"],
+      "properties": {
+        "path": { "type": "string", "maxLength": 2048 },
+        "keyword": { "type": "string", "maxLength": 100 },
+        "depth": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "maxResults": { "type": "integer", "minimum": 1, "maximum": 50 },
+        "maxBytes": { "type": "integer", "minimum": 2048, "maximum": 65536 }
+      },
+      "anyOf": [{ "properties": { "path": { "minLength": 1 } } }, { "properties": { "keyword": { "minLength": 1 } } }]
+    },
+    "sources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["snapshot", "graph", "api", "docs"],
+      "properties": {
+        "snapshot": { "$ref": "#/$defs/id" }, "graph": { "$ref": "#/$defs/id" },
+        "api": { "$ref": "#/$defs/id" }, "docs": { "$ref": "#/$defs/id" }
+      }
+    },
+    "coordinate": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+    "hit": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path", "label", "match", "evidence"],
+      "properties": {
+        "kind": { "enum": ["file", "symbol", "route", "heading", "relation"] },
+        "path": { "$ref": "#/$defs/filePath" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "match": { "enum": ["exact-path", "path", "keyword", "relation"] },
+        "evidence": {
+          "type": "object", "additionalProperties": false,
+          "required": ["schemaVersion", "artifactId", "ref", "sourcePath", "line", "column"],
+          "properties": {
+            "schemaVersion": { "enum": ["code-snapshot/v1", "code-graph/v1", "api-catalog/v1", "doc-trace/v1"] },
+            "artifactId": { "$ref": "#/$defs/id" },
+            "ref": { "type": "string", "minLength": 1, "maxLength": 8192 },
+            "sourcePath": { "$ref": "#/$defs/filePath" },
+            "line": { "$ref": "#/$defs/coordinate" },
+            "column": { "$ref": "#/$defs/coordinate" }
+          }
+        },
+        "relation": {
+          "type": "object", "additionalProperties": false,
+          "required": ["from", "kind", "depth"],
+          "properties": {
+            "from": { "$ref": "#/$defs/filePath" },
+            "kind": { "type": "string", "minLength": 1, "maxLength": 8192 },
+            "depth": { "type": "integer", "minimum": 1, "maximum": 2 }
+          }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "relation" } }, "required": ["kind"] }, "then": { "required": ["relation"], "properties": { "match": { "const": "relation" } } },
+          "else": { "not": { "required": ["relation"] } } }
+      ]
+    },
+    "selection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "query", "sources", "hits", "truncated"],
+      "properties": {
+        "status": { "enum": ["matched", "no-match"] },
+        "query": { "$ref": "#/$defs/query" },
+        "sources": { "$ref": "#/$defs/sources" },
+        "hits": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/hit" } },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "excerpt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourcePath", "startLine", "endLine", "startColumn", "text", "truncated"],
+      "properties": {
+        "sourcePath": { "$ref": "#/$defs/filePath" },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "startColumn": { "type": "integer", "minimum": 1 },
+        "text": { "type": "string", "maxLength": 2072 },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "record": {
+      "type": "object", "additionalProperties": false,
+      "required": ["hit", "status", "verification", "reason", "expectedSha256", "excerpt"],
+      "properties": {
+        "hit": { "$ref": "#/$defs/hit" },
+        "status": { "enum": ["indexed", "unknown", "not-checked"] },
+        "verification": { "enum": ["sha256-verified", "failed", "not-checked"] },
+        "reason": { "enum": ["no-location", "missing-source", "read-budget", "source-unavailable", "invalid-location", null] },
+        "expectedSha256": { "oneOf": [{ "type": "string", "pattern": "^[a-f0-9]{64}$" }, { "type": "null" }] },
+        "excerpt": { "oneOf": [{ "$ref": "#/$defs/excerpt" }, { "type": "null" }] }
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sensitivity", "coverage", "status", "query", "sources", "records", "truncated"],
+      "properties": {
+        "sensitivity": { "const": "private" },
+        "coverage": { "const": "included-indexes-only" },
+        "status": { "enum": ["matched", "no-match"] },
+        "query": { "$ref": "#/$defs/query" },
+        "sources": { "$ref": "#/$defs/sources" },
+        "records": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/record" } },
+        "truncated": { "type": "boolean" }
+      }
+    }
+  },
+  "description": "SHA-256 checks the producer's JSON body excluding artifactId, with recursively sorted object keys. It does not authenticate the source or source freshness."
+}
