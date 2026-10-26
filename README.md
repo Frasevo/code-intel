@@ -1,6 +1,6 @@
 # Frasevo Code Intel
 
-Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05 deterministic context queries and hash-verified evidence with a versioned CLI contract**; CI-06A1 supports SHA-256-keyed incremental graph AST reuse. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
+Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05 deterministic context queries and hash-verified evidence with a versioned CLI contract**; CI-06 supports SHA-256-keyed AST reuse and a bounded-concurrency scanner with full file verification. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
 
 This repository is independent of the Frasevo SaaS. All examples and fixtures are synthetic. It does not use AI, Ollama, Codex, API keys, external services, telemetry, or a database.
 
@@ -86,7 +86,7 @@ Import hashes are only producer claims. `validate` checks structural and interna
 3. **CI-03 (complete):** Next.js route registry, provenance and declared/tested/observed distinctions.
 4. **CI-04 (complete):** Markdown link/anchor references and traceability without executing the target repository.
 5. **CI-05 (implemented; CI validation pending):** deterministic context selection, hash-verified excerpts, and versioned read-only CLI `context-query/v1`.
-6. **CI-06A1 (implemented):** reusable AST graph metadata validated against freshly hashed sources; CI-06A2 (pending) safe inventory acceleration; CI-06B (pending) optional read-only MCP.
+6. **CI-06A1/A2 (implemented; integration validation pending):** reusable AST graph metadata and bounded-concurrency inventory hashing; CI-06B (pending decision) optional read-only MCP.
 
 See [PENDIENTE.md](PENDIENTE.md) for the active roadmap. See [SECURITY.md](SECURITY.md) for safe use and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
 
@@ -183,7 +183,7 @@ The schema is [`schemas/context-query.v1.schema.json`](schemas/context-query.v1.
 
 ### Branch workflow
 
-Create `feat/ci-05c-context-cli` from updated `develop`, make **one coherent commit** for this delivery, submit a PR targeting **`develop` only**, and remove the feature branch after merging. **Do not merge or promote anything into `main` until explicitly instructed.** Local Node 22 testing requires experimental type stripping; the repository CI targets Node 24.
+Create a new `feat/ci-XX-*` branch from updated `develop` for each core, make **one coherent commit**, submit a PR targeting **`develop` only**, and remove the feature branch after merging. **Do not merge or promote anything into `main` until explicitly instructed.** Local Node 22 testing requires experimental type stripping; the repository CI targets Node 24.
 
 ## CI-06A1 incremental graph analysis
 
@@ -191,5 +191,15 @@ Create `feat/ci-05c-context-cli` from updated `develop`, make **one coherent com
 
 - An edited TS/JS source invalidates its own cached AST automatically. Optionally pass `--invalidate-path <relative-file>` to force re-parse even with identical content; the library accepts multiple explicit paths. Denied paths are rejected.
 - Source file creation/deletion, changed JSON configuration (including `tsconfig.json`), unsupported previous producer versions and explicitly invalidated non-source paths force a complete AST pass. The previous snapshot, graph and repository identity must be mutually compatible. Source paths, symbols and imports in prior caches are **private, trusted local data**: an artifact fingerprint alone is not an authenticity signature against a maliciously forged cache.
-- Reuse saves AST parsing, not file hashing. An unmodified source can only be considered `filesystem-verified` because the current scanner still performs a full tree traversal and SHA-256 calculation. No filesystem event stream or `mtime`-only cache is trusted in this phase. Optimize traversal only when reliable completeness and the original verification claim can be preserved (CI-06A2).
+- Reuse saves AST parsing, not file hashing. An unmodified source can only be considered `filesystem-verified` because the current scanner still performs a full tree traversal and SHA-256 calculation. No filesystem event stream or `mtime`-only cache is trusted in this phase. CI-06A2 improves scanning throughput without skipping enumeration or hashing.
 - Benchmark illustration (single local run, Node 22): 100 synthetic TS files with 25 exported functions each, one edited file; median full graph ~119 ms, incremental ~89 ms (four measurements after two warm-up runs); 99 files reused and 1 parsed, identical fingerprint. Measurements vary with file sizes, filesystem and machine. Official Node 24 Ubuntu/Windows validation is still pending.
+
+## CI-06A2 safe inventory throughput
+
+`scan`, `graph` and `graph-incremental` share `scanRepository()`. It now overlaps hashing I/O for **up to four files at a time**, bounded by a fixed cap on simultaneously open file handles. The directory traversal still enumerates every permitted directory; every included file still gets a freshly computed SHA-256 from its bytes, with pre/post metadata checks. The scanner avoids entering excluded directories and avoids resolving disallowed files. Its result is sorted canonically by `createSnapshot()`, so completion order does not alter the artifact ID.
+
+**No change journal or trusted filesystem watcher is available.** `mtime`, file size, Git status and an earlier hash cannot authorize skipping a file. This is an I/O scheduling improvement, not a partial scan. File additions, removals, equal-size edits and policy exclusions remain accounted for in full scans. Like other filesystem scanners, it does not promise an atomic cross-file snapshot during concurrent external writes; changes detected while a file is read cause an error.
+
+- Contract remains `code-snapshot/v1`, with no new schema fields. Native read-only behavior, policy exclusions, file/total size caps, and symlink rejection are unchanged.
+- New tests check deterministic ordering across many files, create/delete/mtime-preserving rewrites and exclusion/symlink/size protections. Tests use synthetic content only.
+- Local illustrative Node 22 benchmark: 400 small/mid-sized TypeScript files, same filesystem, eight paired measurements after three warm-ups, medians **~272 ms** (CI-06A1 scanner) and **~85 ms** (CI-06A2 scanner). Includes file enumeration and hashing; excludes AST indexing. Results are machine-specific and may reverse on some disks, network filesystems or file distributions. Large repository and Node 24 CI benchmarks remain pending.

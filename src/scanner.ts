@@ -1,4 +1,4 @@
-import { constants } from 'node:fs';
+import { constants, type Stats } from 'node:fs';
 import { lstat, realpath, readdir, stat, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
@@ -9,6 +9,9 @@ import { createSnapshot, sha256, type FileEntry, type Snapshot } from './snapsho
 const MAX_FILES = 100_000;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024;
+// Limit concurrent open file descriptors while overlapping independent hash I/O.
+// This is not a change journal: every permitted file still gets SHA-256 hashed.
+const HASH_CONCURRENCY = 4;
 
 function inside(root: string, candidate: string): boolean {
   const subpath = relative(root, candidate);
@@ -50,36 +53,72 @@ export async function scanRepository(rootArg: string, repoIdArg?: string): Promi
 
   const results: FileEntry[] = [];
   let totalBytes = 0;
+  let scheduledFiles = 0;
+  const active = new Set<Promise<void>>();
+  let hashError: unknown;
+
+  async function queueHash(absolute: string, rel: string, metadata: Stats): Promise<void> {
+    if (hashError !== undefined) throw hashError;
+    // A failed hash is captured and rethrown after the running jobs settle.
+    // No promise is left unobserved if walking the tree itself fails.
+    const task = (async () => {
+      const hash = await hashFile(absolute, metadata);
+      const after = await lstat(absolute);
+      if (!after.isFile() || after.size !== metadata.size || after.mtimeMs !== metadata.mtimeMs ||
+          after.ino !== metadata.ino || after.dev !== metadata.dev) {
+        throw new Error(`File changed during scan: ${rel}`);
+      }
+      results.push({ path: rel, sizeBytes: metadata.size, sha256: hash, language: languageFor(rel) });
+    })().catch(error => {
+      if (hashError === undefined) hashError = error;
+    }).finally(() => { active.delete(task); });
+    active.add(task);
+    if (active.size >= HASH_CONCURRENCY) {
+      await Promise.race(active);
+      if (hashError !== undefined) throw hashError;
+    }
+  }
+
   async function visit(folder: string): Promise<void> {
     const children = await readdir(folder, { withFileTypes: true });
     children.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     for (const child of children) {
+      if (hashError !== undefined) throw hashError;
       const absolute = resolve(folder, child.name);
       const rel = relative(root, absolute).split(sep).join('/');
-      // Skip *all* links, including Windows junctions and in-tree symlinks.
-      if ((await lstat(absolute)).isSymbolicLink()) continue;
+      // Avoid opening or resolving directories excluded by the policy.
+      // File types are checked again with lstat: Dirent alone is not a security boundary.
+      if (child.isDirectory() && !permittedDirectory(rel)) continue;
+      if (child.isFile() && !permittedPath(rel)) continue;
+      const metadata = await lstat(absolute);
+      if (metadata.isSymbolicLink()) continue;
+      if (metadata.isDirectory() && !permittedDirectory(rel)) continue;
+      if (metadata.isFile() && !permittedPath(rel)) continue;
+      if (!metadata.isFile() && !metadata.isDirectory()) continue;
       const resolved = await realpath(absolute);
       if (!inside(root, resolved)) throw new Error('Path escapes repository root');
-      const metadata = await lstat(absolute);
       if (metadata.isDirectory()) {
-        if (permittedDirectory(rel)) await visit(absolute);
+        await visit(absolute);
         continue;
       }
-      if (!metadata.isFile() || !permittedPath(rel)) continue;
       if (metadata.size > MAX_FILE_BYTES) throw new Error(`Source file exceeds 8 MiB: ${rel}`);
       totalBytes += metadata.size;
-      if (totalBytes > MAX_TOTAL_BYTES || results.length >= MAX_FILES) {
+      if (totalBytes > MAX_TOTAL_BYTES || scheduledFiles >= MAX_FILES) {
         throw new Error('Repository exceeds scan safety limits');
       }
-      const hash = await hashFile(absolute, metadata);
-      const after = await lstat(absolute);
-      if (!after.isFile() || after.size !== metadata.size || after.mtimeMs !== metadata.mtimeMs || after.ino !== metadata.ino || after.dev !== metadata.dev) {
-        throw new Error(`File changed during scan: ${rel}`);
-      }
-      results.push({ path: rel, sizeBytes: metadata.size, sha256: hash, language: languageFor(rel) });
+      scheduledFiles++;
+      await queueHash(absolute, rel, metadata);
     }
   }
-  await visit(root);
+  try {
+    await visit(root);
+    await Promise.all(active);
+    if (hashError !== undefined) throw hashError;
+  } catch (error) {
+    // Ensure all file handles are closed before surfacing a traversal/hash error.
+    await Promise.all(active);
+    throw error;
+  }
   const git = gitIdentity(root);
   return createSnapshot({ repoId, files: results, kind: 'filesystem-scan', ...git });
 }
