@@ -1,6 +1,6 @@
 {
   "name": "@frasevo/code-intel",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "description": "Offline code inventory, TypeScript dependency graphs and static Next.js API route catalog and Markdown documentation traceability",

@@ -1,6 +1,6 @@
 # Frasevo Code Intel
 
-Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05A bounded deterministic selection**. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
+Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05A/B bounded deterministic selection and hash-verified evidence excerpts**. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
 
 This repository is independent of the Frasevo SaaS. All examples and fixtures are synthetic. It does not use AI, Ollama, Codex, API keys, external services, telemetry, or a database.
 
@@ -81,7 +81,7 @@ Import hashes are only producer claims. `validate` checks structural and interna
 2. **CI-02 (complete):** TypeScript AST symbols, in-inventory dependencies and reverse consumers.
 3. **CI-03 (complete):** Next.js route registry, provenance and declared/tested/observed distinctions.
 4. **CI-04 (complete):** Markdown link/anchor references and traceability without executing the target repository.
-5. **CI-05A (implemented):** in-memory deterministic selection from validated v1 indexes; CI-05B/C remain pending.
+5. **CI-05A/B (implemented):** in-memory deterministic selection and bounded source excerpts verified against snapshot hashes; CI-05C remains pending.
 6. **CI-06:** incremental indexing and optional read-only MCP.
 
 See [PENDIENTE.md](PENDIENTE.md) for the active roadmap. See [SECURITY.md](SECURITY.md) for safe use and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
@@ -128,8 +128,27 @@ Dependencies show direct static imports and reexports of the route file (with so
 - Optional `depth` is 0–2 (default 0); expansions run from an exact file or route path across resolved TypeScript graph edges and resolved document links. A relationship is static evidence only; consumer edges are not execution traces. Incoming document links, fuzzy route parameters and heuristic interpretations are not inferred.
 - Each hit includes its source schema (`code-snapshot/v1`, `code-graph/v1`, `api-catalog/v1` or `doc-trace/v1`), corresponding artifact ID and record reference, with source path/line/column when available. Results are deterministically ranked (exact path, partial path, keyword, relations), with stable tie-breakers. `no-match` means not found in the **included indexes only**.
 - Default limits: 20 results, 16 KiB JSON output; hard limits: 50 results, 64 KiB JSON, depth 2 and 5,000 candidates. `truncated=true` reports a bounded partial selection. If query metadata itself exceeds the requested byte limit, the query is rejected. Unverified source content, runtime proof, authentication, request/response schemas and testing status are **not supplied**.
-- CI-05B will add hash-verified excerpts; CI-05C will define a stable versioned response schema and CLI. Do not treat this provisional TypeScript API as a public contract.
+- CI-05B adds hash-verified excerpts; CI-05C will define a stable versioned response schema and CLI. Neither current TypeScript API is a public wire contract.
+
+## CI-05B evidence pack (programmatic API only)
+
+`src/evidence.ts` exposes `buildEvidencePack(root, indexes, contextQuery, limits?)`. Supply an existing `ContextIndexes` value from CI-05A, a local checkout root and a query. It first validates all four indexes and uses `selectContext`; it then reads **only source files with indexed line/column coordinates**, with the existing `verifiedRead()` checks (permitted relative path, in-root real path, no linked parents/files, expected byte size and SHA-256). Source bytes are never returned for failed reads. This is a private, provisional TypeScript API, **not a versioned JSON contract or CLI command**.
+
+- Each result carries the selected hit and its artifact reference plus `status`, `verification`, `reason`, `expectedSha256` and a nullable excerpt with `sourcePath`, start/end line, first-column offset, text and truncation flag. `indexed` means that the source file matches the **supplied** snapshot hash and the indexed location exists; it never means the code executes or the interpretation is true. `unknown` is used for unavailable/changed files or invalid positions, and `not-checked` for non-positioned hits and reading-budget exhaustion. `no-match` is only no match **among included indexes**.
+- Defaults: 5 lines, 640 UTF-16 code units, 8 distinct source files, 16 MiB total source reads and 32 KiB output. Hard maximums: 12 lines, 2048 UTF-16 code units, 20 source files, 32 MiB input and 64 KiB JSON output. The CI-05A context query maintains its separate maximums of 50 hits, 64 KiB and 2 relation levels. Long lines are cropped **around the indexed column**; line endings in excerpts are normalized to `\n`. `truncated` indicates output or selection limits; the excerpt-level flag indicates missing surrounding lines or cropped content.
+- The file-reader verifies bytes against the supplied hash, but this **does not authenticate the provenance of user-provided indexes**, commit identity, or repository ownership; it also does not prevent sensitive string literals within permitted source files. Keep evidence private and review before sharing. There is no whole-repository completeness guarantee, no external evidence and no runtime/security proof.
+
+Example (TypeScript, using already-built indexes):
+
+```ts
+import { buildEvidencePack } from './src/evidence.ts';
+
+const pack = await buildEvidencePack('./my-project', indexes, {
+  path: 'src/lib/items.ts', keyword: 'getItems', depth: 1,
+}, { maxLines: 3, maxChars: 400 });
+// pack.records: only hash-verified excerpts are status === 'indexed'
+```
 
 ### Branch workflow
 
-Create `feat/ci-05a-context-selection` from current `develop`, make **one commit** for this coherent change, submit a PR targeting **`develop` only**, and delete the feature branch after merging. **Do not merge or promote anything into `main` until explicitly instructed.** Local Node 22 testing requires experimental type stripping; the repository CI targets Node 24.
+Create `feat/ci-05b-evidence-packs` from updated `develop`, make **one coherent commit** for this delivery, submit a PR targeting **`develop` only**, and remove the feature branch after merging. **Do not merge or promote anything into `main` until explicitly instructed.** Local Node 22 testing requires experimental type stripping; the repository CI targets Node 24.
