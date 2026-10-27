@@ -12,7 +12,7 @@ This repository is independent of the Frasevo SaaS. All examples and fixtures ar
 
 ## Commands
 
-Install dependencies once (`npm install --ignore-scripts` or your pnpm equivalent). Tests and typecheck do not need a GPU or network after installation.
+Install the locked dependencies with `npm ci --ignore-scripts --no-audit --no-fund`. CI uses the same command on Node.js 24.x in Ubuntu and Windows and records Node/npm versions in the job logs. Tests and typecheck do not need a GPU or network after installation.
 
 ```sh
 # Keep results OUTSIDE the scanned repository. This tool does not change it.
@@ -85,8 +85,8 @@ Import hashes are only producer claims. `validate` checks structural and interna
 2. **CI-02 (complete):** TypeScript AST symbols, in-inventory dependencies and reverse consumers.
 3. **CI-03 (complete):** Next.js route registry, provenance and declared/tested/observed distinctions.
 4. **CI-04 (complete):** Markdown link/anchor references and traceability without executing the target repository.
-5. **CI-05 (implemented; CI validation pending):** deterministic context selection, hash-verified excerpts, and versioned read-only CLI `context-query/v1`.
-6. **CI-06A1/A2 (implemented; integration validation pending):** reusable AST graph metadata and bounded-concurrency inventory hashing; CI-06B (pending decision) optional read-only MCP.
+5. **CI-05 (complete; Node 24 CI validated):** deterministic context selection, hash-verified excerpts, and versioned read-only CLI `context-query/v1`.
+6. **CI-06A1/A2 and CI-06B1 (implemented; Node 24 CI validated):** reusable AST graph metadata, bounded-concurrency inventory hashing and a local read-only MCP stdio adapter for the 2025-11-25 generation. CI-06B2 and real-client MCP validation remain pending.
 
 See [PENDIENTE.md](PENDIENTE.md) for the active roadmap. See [SECURITY.md](SECURITY.md) for safe use and [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
 
