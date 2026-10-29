@@ -14,7 +14,7 @@
 | CI-03 | Terminado | Catálogo estático Next.js `api-catalog/v1`, métodos declarados, trazabilidad de reexports y semántica `unknown`. |
 | CI-04 | Terminado; CI Node 24 validada | Referencias Markdown/MDX `doc-trace/v1`, encabezados, enlaces a archivos y rutas API, CLI y pruebas. |
 | CI-05 | CI-05A/B/C terminados; CI Node 24 validada | Selección acotada, fragmentos verificados, CLI offline y contrato `context-query/v1`. |
-| CI-06 | CI-06A1/A2 y CI-06B1 implementados y validados en CI Node 24; CI-06B2 pendiente | Reutilización AST por SHA-256, hashing concurrente, MCP local y CI-06V1 instalación reproducible. La prueba MCP con clientes reales sigue abierta. |
+| CI-06 | CI-06A1/A2, CI-06B1 y CI-06V1 validados en Node 24; CI-06V2 aporta smoke CLI independiente; CI-06B2 pendiente | Reutilización AST por SHA-256, hashing concurrente, MCP local y CI-06V1 instalación reproducible. La prueba MCP con clientes reales sigue abierta. |
 
 ## Último core implementado: CI-05 — Contexto recuperable y citado
 
@@ -39,7 +39,7 @@
 ## Validaciones pendientes
 
 - Probar manualmente el MCP de 2025 frente a un cliente real con fallback y comprobar su consentimiento antes de permitir lectura de fragmentos; verificar que `stdout` contiene exclusivamente JSON-RPC.
-- Verificar manualmente consultas `docs-target`, `selectContext` y `buildEvidencePack` y los comandos `context-select`/`context-evidence` con un repositorio de prueba independiente, manteniendo los artefactos fuera de su raíz.
+- Ampliar la validación interactiva de `docs-target`, `context-select` y `context-evidence` a un repositorio externo no sintético. CI-06V2 añade una prueba automatizada con la CLI como proceso independiente, fixtures externas y artefactos fuera del checkout; no sustituye la validación en proyectos reales.
 - Evaluar rendimientos en repositorios grandes y en sistemas Windows/red, con cambios de `tsconfig.json`. CI-06A1 reduce trabajo AST y CI-06A2 acelera el hashing de I/O, pero **ambos siguen recorriendo y hasheando toda fuente incluida**; CI-05A/B/C verifican cuatro índices y CI-04 reescanea parcialmente la fuente.
 
 ## CI-06V1 — Instalación reproducible y evidencia Node 24
@@ -52,7 +52,15 @@
 
 **Evidencia base:** [CI de `develop`, ejecución 40391442477](https://github.com/Frasevo/frasevo-code-intel/actions/runs/40391442477), commit `8d2bc8691046ab7aad259dbcf13b1a2a83789484`: typecheck PASS y **44/44 tests, cero omitidos**, en Ubuntu y Windows con Node 24. Esa ejecución utilizó `npm install`; no demuestra por sí sola instalación congelada en ambos sistemas.
 
-**Verificación local de esta fase:** Node 24.22.1, npm 11.9.0; `npm ci --ignore-scripts --no-audit --no-fund`, `npm run typecheck` y `npm test` PASS (44/44). La matriz del PR de CI-06V1 registra versiones y comprueba instalación congelada, typecheck y tests en Ubuntu y Windows. Consultar sus checks antes del merge a `develop`; las validaciones manuales anteriores siguen abiertas.
+**Verificación local de esta fase:** Node 24.22.1, npm 11.9.0; `npm ci --ignore-scripts --no-audit --no-fund`, `npm run typecheck` y `npm test` PASS (44/44). La matriz del PR de CI-06V1 registra versiones y comprueba instalación congelada, typecheck y tests en Ubuntu y Windows. PR [#11](https://github.com/Frasevo/frasevo-code-intel/pull/11) fusionada en `develop` (commit `f1647c881345f00392a744012acbde13e4552cf6`); [CI 40596472060](https://github.com/Frasevo/frasevo-code-intel/actions/runs/40596472060) PASS en Ubuntu/Windows. La rama de trabajo antigua puede eliminarse; las validaciones MCP con clientes externos siguen abiertas.
+
+## CI-06V2 — Prueba integrada de CLI como proceso
+
+**IMPLEMENTACIÓN:** `tests/cli-process.test.ts` ejecuta con Node 24 la CLI real sobre un repositorio sintético creado en un directorio temporal con espacios. Genera snapshot, grafo, catálogo API y referencias documentales, consulta `docs-target`, recupera y valida contexto/evidencia, verifica fragmentos citados y rechaza salidas dentro del repositorio fuente.
+
+**Aceptación (3):** (1) todos los comandos se ejecutan como procesos independientes con códigos de salida verificados; (2) los artefactos y referencias son coherentes y no incluyen rutas absolutas; (3) el repositorio fuente permanece sin modificar, incluso ante un destino prohibido. No añade dependencias ni cambia contratos.
+
+**Validación:** pendiente de comprobar los checks del PR en Ubuntu y Windows Node 24 antes de fusionar a `develop`. La compatibilidad MCP con clientes externos sigue siendo CI-06B2.
 
 ## Reglas técnicas
 
