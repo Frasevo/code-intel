@@ -1,9 +1,87 @@
 # Frasevo Code Intel
 
-Offline, read-only code inventory, TypeScript dependency graph, static Next.js API catalog, **CI-04 Markdown documentation traceability**, and **CI-05 deterministic context queries and hash-verified evidence with a versioned CLI contract**; CI-06 supports SHA-256-keyed AST reuse and a bounded-concurrency scanner with full file verification. CI-01 snapshots and the CI-02/03 artifact contracts remain compatible with v1.
+**Offline, read-only code intelligence for TypeScript and Next.js repositories.**
 
-This repository is independent of the Frasevo SaaS. All examples and fixtures are synthetic. It does not use AI, Ollama, Codex, API keys, external services, telemetry, or a database.
+Frasevo Code Intel turns a local source checkout into structured, traceable information: which files exist, how modules depend on each other, what API routes are declared, how documentation references the code, and which source locations support a query.
 
+It is designed to help **developers, maintainers, code-review workflows, and coding assistants** understand a codebase *before making changes*. It is **not an AI model**: the indexer itself does not call an LLM, execute application code, send data to a hosted service, or modify the inspected repository.
+
+> **Project status — v0.6.2:** The core scanner, graph, API/documentation indexes, context queries, evidence retrieval, and local MCP adapter are implemented. The MCP adapter is **experimental**; modern protocol support, real-client interoperability checks, and larger-scale benchmarking remain open. See [PENDIENTE.md](PENDIENTE.md).
+
+## What is it for?
+
+| Use case | How Code Intel helps |
+| --- | --- |
+| **Explore an unfamiliar repository** | Produces a bounded inventory of included files with SHA-256 hashes and reproducible artifact identifiers. |
+| **Understand dependencies and change impact** | Maps TypeScript/JavaScript imports, exports, reexports, top-level declarations, and reverse file-level consumers. |
+| **Find declared API endpoints** | Catalogs statically detectable Next.js App Router routes and HTTP method exports, retaining unknowns instead of guessing runtime behavior. |
+| **Trace documentation to source** | Resolves supported Markdown/MDX links and headings against indexed files and exact API declarations. |
+| **Retrieve relevant context** | Searches the validated indexes by path or keyword and returns bounded results with source references. |
+| **Inspect supporting evidence** | Optionally reads small source excerpts only after verifying current file bytes against recorded hashes. |
+| **Integrate with local tools** | Exposes read-only context selection through a local, opt-in MCP `stdio` adapter; source excerpts require an explicit permission flag. |
+
+### Intended audience
+
+- **Software engineers** investigating unfamiliar modules, reverse dependencies, and endpoint declarations.
+- **Reviewers and maintainers** checking documentation references and gathering source-backed context for a change.
+- **Developer-tool and agent builders** who need structured, bounded context rather than a large unverified code dump.
+
+Although developed within the Frasevo ecosystem, **this repository is independent of the Frasevo SaaS**. Its examples and test fixtures are synthetic, and its versioned artifacts are designed to be consumed by other local tooling.
+
+## How it works
+
+```text
+Local repository (read only)
+          |
+          v
+  Safe inventory + SHA-256
+          |
+          +--> TypeScript/JavaScript dependency graph
+          +--> Next.js static API catalog
+          +--> Markdown documentation trace
+          |
+          v
+ Validated, versioned JSON indexes
+          |
+          +--> CLI queries / reverse consumers
+          +--> Deterministic context selection
+          +--> Hash-verified excerpts (optional)
+          +--> Local MCP stdio adapter (experimental)
+```
+
+All generated index and context artifacts are **private by default**. Save outputs **outside the repository being scanned**. A snapshot contains metadata and hashes, not the source file contents; optional evidence queries may return limited source text.
+
+## Try it locally
+
+Requires **Node.js 24.x** and a local clone. Dependencies are installed once; analysis does not require network access, a database, an AI provider, API keys, or a GPU.
+
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+npm run typecheck
+npm test
+
+# Use the included synthetic Next.js fixture, and write output outside the checkout.
+node src/cli.ts scan ./tests/fixtures/tiny-next --repo-id demo --out ../code-snapshot.json
+node src/cli.ts graph ./tests/fixtures/tiny-next --repo-id demo --out ../code-graph.json
+node src/cli.ts api ./tests/fixtures/tiny-next --repo-id demo --out ../api-catalog.json
+node src/cli.ts docs ./tests/fixtures/tiny-next --repo-id demo --out ../doc-trace.json
+```
+
+See [Commands](#commands) for querying files, dependencies, endpoints, documentation and context, and [CI-06B1](#ci-06b1-mcp-local-de-solo-lectura-adaptador-experimental) for the optional local MCP setup.
+
+## Scope and trust boundaries
+
+- **Static evidence, not runtime proof.** A declared endpoint is not necessarily reachable, tested, authenticated, or secure; a resolved import is not proof of runtime execution. Missing evidence is reported as `unknown` or `not-checked`.
+- **Constrained access.** The scanner excludes sensitive-looking paths, symlinks, dependencies, binaries, generated outputs, and oversized files; all included source files are freshly hashed. It does not guarantee coverage of every language or file in a repository.
+- **No code execution or hosted processing.** The tool does not run target-project scripts, load project modules, use AI services, or open a network server. The MCP adapter communicates over local `stdio`.
+- **MCP privacy depends on the client.** A connected client can receive private source metadata and, if `--allow-evidence` is enabled, verified excerpts. Code Intel cannot prevent that client from forwarding the data.
+- **Integrity is not authenticity.** Artifact fingerprints detect internal inconsistency but are not signatures or proof of repository ownership; check evidence against a trusted local checkout.
+
+**Implementation:** TypeScript 5.8.3 Compiler API, Node.js 24, JSON Schema v1 contracts, local CLI and an experimental MCP adapter. License: [Apache-2.0](LICENSE). For responsible use see [SECURITY.md](SECURITY.md); for development guidelines see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Detailed usage and technical guarantees
 ## Requirements
 
 - Node.js 24.x (native TypeScript type stripping)
@@ -192,7 +270,7 @@ Create a new `feat/ci-XX-*` branch from updated `develop` for each core, make **
 - An edited TS/JS source invalidates its own cached AST automatically. Optionally pass `--invalidate-path <relative-file>` to force re-parse even with identical content; the library accepts multiple explicit paths. Denied paths are rejected.
 - Source file creation/deletion, changed JSON configuration (including `tsconfig.json`), unsupported previous producer versions and explicitly invalidated non-source paths force a complete AST pass. The previous snapshot, graph and repository identity must be mutually compatible. Source paths, symbols and imports in prior caches are **private, trusted local data**: an artifact fingerprint alone is not an authenticity signature against a maliciously forged cache.
 - Reuse saves AST parsing, not file hashing. An unmodified source can only be considered `filesystem-verified` because the current scanner still performs a full tree traversal and SHA-256 calculation. No filesystem event stream or `mtime`-only cache is trusted in this phase. CI-06A2 improves scanning throughput without skipping enumeration or hashing.
-- Benchmark illustration (single local run, Node 22): 100 synthetic TS files with 25 exported functions each, one edited file; median full graph ~119 ms, incremental ~89 ms (four measurements after two warm-up runs); 99 files reused and 1 parsed, identical fingerprint. Measurements vary with file sizes, filesystem and machine. Official Node 24 Ubuntu/Windows validation is still pending.
+- Benchmark illustration (single local run, Node 22): 100 synthetic TS files with 25 exported functions each, one edited file; median full graph ~119 ms, incremental ~89 ms (four measurements after two warm-up runs); 99 files reused and 1 parsed, identical fingerprint. Measurements vary with file sizes, filesystem and machine. Additional Node 24 cross-platform performance benchmarking remains pending; Node 24 CI test and typecheck validation has been recorded.
 
 ## CI-06A2 safe inventory throughput
 
