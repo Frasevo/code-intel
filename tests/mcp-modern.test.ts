@@ -17,7 +17,7 @@ const meta = {
   'io.modelcontextprotocol/clientInfo': { name: 'synthetic-test', version: '1' },
 };
 const req = (id: number, method: string, params: Record<string, unknown> = {}) =>
-  JSON.stringify({ jsonrpc: '2.0', id, method, params: { ...params, _meta: meta } }) + '\n';
+  JSON.stringify({ jsonrpc: '2.0', id, method, params: { _meta: meta, ...params } }) + '\n';
 
 type Reply = {
   id: number | string | null;
