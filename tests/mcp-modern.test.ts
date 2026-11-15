@@ -93,7 +93,11 @@ test('CI-06B2B: invalid envelope, unsupported versions and forbidden tools fail 
       req(4, 'tools/call', { name: 'frasevo_context_select', arguments: { keyword: 'visibleItems', root: '/secrets' } }) +
       req(5, 'resources/read', { uri: 'file:///secret' }) + '{not-json}\n';
     const output = await exchange(f.root, f.indexes, false, messages);
-    assert.deepEqual(output.map(item => item.error!.code), [-32022, -32602, -32602, -32602, -32601, -32700]);
+    assert.deepEqual(output.map((item, index) => index === 3 ? null : item.error?.code),
+      [-32022, -32602, -32602, null, -32601, -32700]);
+    assert.equal(output[3]!.result!.resultType, 'complete');
+    assert.equal(output[3]!.result!.isError, true);
+    assert.equal(output[3]!.result!.content[0].type, 'text');
     assert.deepEqual(output[0]!.error!.data, { supported: ['2026-07-28'], requested: '2027-01-01' });
     assert.ok(!JSON.stringify(output).includes('/secrets'));
   } finally { await rm(f.base, { recursive: true, force: true }); }
