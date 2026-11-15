@@ -13,9 +13,10 @@ import { selectContext, type ContextIndexes, type ContextQuery } from './context
 import { buildEvidencePack, type EvidenceLimits } from './evidence.ts';
 import { createContextArtifact, validateContextArtifact, type ContextArtifact } from './context-artifact.ts';
 import { serveMcpStdio } from './mcp.ts';
+import { serveModernMcpStdio } from './mcp-modern.ts';
 
 function usage(): never {
-  throw new Error('Usage: mcp-stdio <repo> --snapshot <file> --graph <file> --api <file> --docs <file> [--allow-evidence] | context-select <repo> --snapshot <file> --graph <file> --api <file> --docs <file> --out <file> (--path <path> | --keyword <word>) [--depth 0..2] [--max-results 1..50] [--max-bytes 2048..65536] | context-evidence <repo> [same index/query/output options] [--max-lines 1..12] [--max-chars 80..2048] [--max-source-files 1..20] [--max-source-bytes 1..33554432] [--max-pack-bytes 2048..65536] | context-validate <file> | docs <repo> --out <file> [--repo-id <id>] | docs-validate <index> | docs-file <index> --path <doc> | docs-target <index> --path <target> | api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-incremental <repo> --previous-graph <file> --previous-snapshot <file> --out <file> [--repo-id <id>] [--invalidate-path <relative-file>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
+  throw new Error('Usage: mcp-stdio-modern <repo> [same index/permission flags as mcp-stdio] | mcp-stdio <repo> --snapshot <file> --graph <file> --api <file> --docs <file> [--allow-evidence] | context-select <repo> --snapshot <file> --graph <file> --api <file> --docs <file> --out <file> (--path <path> | --keyword <word>) [--depth 0..2] [--max-results 1..50] [--max-bytes 2048..65536] | context-evidence <repo> [same index/query/output options] [--max-lines 1..12] [--max-chars 80..2048] [--max-source-files 1..20] [--max-source-bytes 1..33554432] [--max-pack-bytes 2048..65536] | context-validate <file> | docs <repo> --out <file> [--repo-id <id>] | docs-validate <index> | docs-file <index> --path <doc> | docs-target <index> --path <target> | api <repo> --out <file> [--repo-id <id>] | api-validate <catalog> | api-route <catalog> --path </api/path> | scan <repo> --out <file> [--repo-id <id>] | graph <repo> --out <file> [--repo-id <id>] | graph-incremental <repo> --previous-graph <file> --previous-snapshot <file> --out <file> [--repo-id <id>] [--invalidate-path <relative-file>] | graph-validate <graph> | consumers <graph> --path <relative-file> | import <input> --out <file> --repo-id <id> | validate <snapshot>');
 }
 
 function option(args: string[], name: string): string | undefined {
@@ -117,7 +118,7 @@ export async function main(args: string[]): Promise<void> {
   if (!target || target.startsWith('--')) usage();
   if (command === 'context-select' || command === 'context-evidence') {
     await contextCommand(command === 'context-select' ? 'selection' : 'evidence', target, rest);
-  } else if (command === 'mcp-stdio') {
+  } else if (command === 'mcp-stdio' || command === 'mcp-stdio-modern') {
     const allowEvidence = rest.includes('--allow-evidence');
     if (rest.filter(arg => arg === '--allow-evidence').length > 1) usage();
     const flags = rest.filter(arg => arg !== '--allow-evidence');
@@ -127,7 +128,8 @@ export async function main(args: string[]): Promise<void> {
     const [snapshot, graph, api, docs] = await Promise.all(paths.map(path => readJsonArtifact(path!)));
     const indexes: ContextIndexes = { snapshot: validateSnapshot(snapshot), graph: validateGraph(graph),
       api: validateApiCatalog(api), docs: validateDocTrace(docs) };
-    await serveMcpStdio(target, indexes, allowEvidence);
+    if (command === 'mcp-stdio-modern') await serveModernMcpStdio(target, indexes, allowEvidence);
+    else await serveMcpStdio(target, indexes, allowEvidence);
   } else if (command === 'context-validate') {
     if (rest.length) usage();
     const response = validateContextArtifact(await readJsonArtifact(target));

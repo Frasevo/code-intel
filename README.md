@@ -318,3 +318,27 @@ Las respuestas pueden quedar obsoletas respecto al último escaneo; los
 fragmentos requieren coincidencia SHA-256 en el momento de lectura.
 No se han probado clientes MCP externos reales ni la compatibilidad MCP 2026;
 se reserva una integración con el SDK oficial v2 para otra entrega si hace falta.
+
+## CI-06B2A — Shared read-only tool execution (pending validation)
+
+The legacy MCP adapter now delegates its two read-only tool definitions, operator-gated evidence permission, argument checking and bounded artifact execution to `src/mcp-tools.ts`. This provides a single transport-independent implementation for a future official MCP SDK v2 adapter, without changing CLI arguments, artifact contracts, target repository access or the advertised 2025-11-25 protocol. It adds **no dependency** and **does not yet enable** MCP 2026-07-28.
+
+**Validation has not been run for this change.** Before merging, run `npm run typecheck` and `npm test` on Node 24 and inspect the legacy MCP handshake, permission gating and error sanitation. Then implement and test the official v2 transport separately. See [PENDIENTE.md](PENDIENTE.md).
+
+## CI-06B2B — Experimental MCP 2026-07-28 stdio (unvalidated)
+
+A separate CLI entry point exposes a **limited, explicit opt-in** implementation of the modern handshake-free, per-request MCP era. The original `mcp-stdio` (2025-11-25) remains unchanged.
+
+```sh
+# Prepare snapshot, graph, api and docs outside the scanned checkout, as above.
+node src/cli.ts mcp-stdio-modern /absolute/path/to/project \
+  --snapshot /absolute/path/to/indexes/snapshot.json \
+  --graph /absolute/path/to/indexes/graph.json \
+  --api /absolute/path/to/indexes/api.json \
+  --docs /absolute/path/to/indexes/docs.json
+# Optionally append --allow-evidence to permit hash-verified source excerpts.
+```
+
+The modern adapter implements only `server/discover`, `ping`, `tools/list` and `tools/call` via line-delimited JSON-RPC over local stdio. Each request must carry `params._meta['io.modelcontextprotocol/protocolVersion'] = '2026-07-28'` and `params._meta['io.modelcontextprotocol/clientCapabilities'] = {}`. Successful results include `resultType: 'complete'` and server identity in `_meta`. Unknown versions receive JSON-RPC error `-32022` with the supported/requested versions. Roots and index paths cannot be changed by tool calls; evidence remains disabled unless the process starts with `--allow-evidence`.
+
+**Not yet a supported interoperability guarantee:** this is a small hand-written adapter, not the official MCP TypeScript SDK v2. It does not implement HTTP, subscriptions, MRTR or optional protocol extensions. The new tests and typecheck have **not been executed**, and no real MCP client has been tried. Do not replace a validated legacy client setup until interoperability checks pass.

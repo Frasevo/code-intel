@@ -1,6 +1,6 @@
 # PENDIENTE — Frasevo Code Intel
 
-**Fecha:** 2026-10-27
+**Fecha:** 2026-11-15
 
 **Rama de integración:** `develop`  
 **Contrato de entregas:** una rama `feat/ci-XX-*` y un commit coherente por core; PR hacia `develop`; tras el merge, eliminar la rama local y remota. **Prohibido integrar en `main` hasta una nueva autorización expresa.**
@@ -14,7 +14,7 @@
 | CI-03 | Terminado | Catálogo estático Next.js `api-catalog/v1`, métodos declarados, trazabilidad de reexports y semántica `unknown`. |
 | CI-04 | Terminado; CI Node 24 validada | Referencias Markdown/MDX `doc-trace/v1`, encabezados, enlaces a archivos y rutas API, CLI y pruebas. |
 | CI-05 | CI-05A/B/C terminados; CI Node 24 validada | Selección acotada, fragmentos verificados, CLI offline y contrato `context-query/v1`. |
-| CI-06 | CI-06A1/A2, CI-06B1 y CI-06V1 validados en Node 24; CI-06V2 aporta smoke CLI independiente; CI-06B2 pendiente | Reutilización AST por SHA-256, hashing concurrente, MCP local y CI-06V1 instalación reproducible. La prueba MCP con clientes reales sigue abierta. |
+| CI-06 | CI-06A1/A2, CI-06B1 y CI-06V1 validados en Node 24; CI-06V2 aporta smoke CLI independiente; CI-06B2A y CI-06B2B implementados sin validar; integración SDK v2 pendiente | Reutilización AST por SHA-256, hashing concurrente, MCP local y CI-06V1 instalación reproducible. La prueba MCP con clientes reales sigue abierta. |
 
 ## Último core implementado: CI-05 — Contexto recuperable y citado
 
@@ -29,6 +29,8 @@
 - **CI-06A1 — IMPLEMENTADO:** `graph-incremental` reutiliza nodos, relaciones y diagnósticos AST de ficheros sin cambios SHA-256 frente a un snapshot/grafo anteriores validados; admite `--invalidate-path`; ante altas/bajas de fuentes TS/JS, cambios JSON o versión distinta, hace reanálisis completo. La salida sigue siendo `code-graph/v1`, con misma huella que una ejecución completa. Cuatro pruebas añadidas (suite: 38/38, Node 22 experimental). Primera iteración: 0.6.0.
 - **CI-06A2 — IMPLEMENTADO (0.6.1):** hashing limitado a cuatro operaciones simultáneas y poda anticipada de rutas excluidas; enumeración completa de directorios permitidos y SHA-256 fresco de todos los archivos incluidos. Sin cachear el inventario por `mtime` ni afirmar que se omite el recorrido. Tres pruebas nuevas (suite: 41/41 en Node 22 experimental). Criterios: (1) mismos contratos y resultados estables; (2) altas/bajas/ediciones y límites detectados; (3) mejora de rendimiento medida localmente. **No es un escaneo incremental del árbol.**
 - **CI-06B1 — IMPLEMENTADO (0.6.2):** adaptador MCP `stdio` local mínimo y sin dependencias nuevas, compatible con la generación 2025-11-25: inicialización, lista de herramientas y consultas `context-query/v1` de solo lectura; evidencia en bruto deshabilitada salvo `--allow-evidence` explícito; raíz e índices fijados en CLI, sin capacidad de reconfiguración remota. Tres pruebas nuevas. Sin agentes ni LLM dentro del indexador.
+- **CI-06B2A — IMPLEMENTADO SIN VALIDAR:** se extraen del adaptador MCP heredado las definiciones, permisos y ejecución de herramientas a `src/mcp-tools.ts`. El transporte 2025 usa el mismo ejecutor, sin nuevas dependencias, contratos ni protocolos anunciados. Pendiente typecheck, pruebas y revisión del diff antes de fusionar.
+- **CI-06B2B — IMPLEMENTADO SIN VALIDAR:** comando opt-in `mcp-stdio-modern` con transporte local `stdio` 2026-07-28 limitado a `server/discover`, `ping`, `tools/list` y `tools/call`; valida `_meta` por petición y devuelve `resultType=complete`, identidad de servidor y errores de versión `-32022`. Reutiliza `src/mcp-tools.ts` para permisos y evidencia. Se han escrito pruebas sintéticas que no se han ejecutado. Se mantiene `mcp-stdio` 2025 separado. No utiliza el SDK oficial v2 ni demuestra compatibilidad general con clientes modernos.
 - **CI-06B2 — PENDIENTE de decisión/validación:** integración mediante el SDK MCP oficial v2, negociación del protocolo moderno 2026-07-28 y prueba con clientes externos reales; no asumir compatibilidad moderna ni soporte general MCP para CI-06B1.
 - Mantener la división por entregas pequeñas, tres criterios de aceptación como máximo; sin tareas de MCP en CI-06A.
 
@@ -37,6 +39,10 @@
 **Medición CI-06A1:** repositorio sintético temporal de 100 archivos TS con 25 funciones por archivo y modificación en uno. Mediana local con Node 22 sobre cuatro ejecuciones tras dos calentamientos: grafo completo ~119 ms, incremental ~89 ms, 99 AST reutilizados/1 parseado; mismo `artifactId`. Referencia orientativa, no benchmark reproducible bajo CI ni garantía general. **El snapshot sigue enumerando y calculando SHA-256 de todos los archivos.**
 
 ## Validaciones pendientes
+
+- **CI-06B2B (sin validar):** ejecutar `npm run typecheck` y `npm test` (Node 24), revisar las solicitudes 2026 de `server/discover`, `tools/list`, `tools/call`, los errores `-32022`, la ausencia de salida ajena a JSON-RPC y la separación de `mcp-stdio` heredado. Después validar manualmente con un cliente MCP 2026 real; considerar adopción del SDK oficial v2 como fase posterior. No afirmar interoperabilidad hasta entonces.
+
+- **CI-06B2A (bloqueante de integración):** ejecutar `npm ci --ignore-scripts --no-audit --no-fund`, `npm run typecheck` y `npm test` en Node 24; comprobar que el handshake 2025, las herramientas anunciadas, el opt-in de evidencia y los errores fail-closed conservan su comportamiento. Esta entrega se ha desarrollado deliberadamente sin ejecutar pruebas.
 
 - Probar manualmente el MCP de 2025 frente a un cliente real con fallback y comprobar su consentimiento antes de permitir lectura de fragmentos; verificar que `stdout` contiene exclusivamente JSON-RPC.
 - Ampliar la validación interactiva de `docs-target`, `context-select` y `context-evidence` a un repositorio externo no sintético. CI-06V2 añade una prueba automatizada con la CLI como proceso independiente, fixtures externas y artefactos fuera del checkout; no sustituye la validación en proyectos reales.
