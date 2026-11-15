@@ -318,3 +318,9 @@ Las respuestas pueden quedar obsoletas respecto al último escaneo; los
 fragmentos requieren coincidencia SHA-256 en el momento de lectura.
 No se han probado clientes MCP externos reales ni la compatibilidad MCP 2026;
 se reserva una integración con el SDK oficial v2 para otra entrega si hace falta.
+
+## CI-06B2A — Shared read-only tool execution (pending validation)
+
+The legacy MCP adapter now delegates its two read-only tool definitions, operator-gated evidence permission, argument checking and bounded artifact execution to `src/mcp-tools.ts`. This provides a single transport-independent implementation for a future official MCP SDK v2 adapter, without changing CLI arguments, artifact contracts, target repository access or the advertised 2025-11-25 protocol. It adds **no dependency** and **does not yet enable** MCP 2026-07-28.
+
+**Validation has not been run for this change.** Before merging, run `npm run typecheck` and `npm test` on Node 24 and inspect the legacy MCP handshake, permission gating and error sanitation. Then implement and test the official v2 transport separately. See [PENDIENTE.md](PENDIENTE.md).
